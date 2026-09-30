@@ -146,9 +146,14 @@ export function TodayPlanCard({
             <ProgressBar done={Math.min(answeredToday, day.questions)} total={day.questions} />
             <ul className="flex flex-col gap-2">
               {day.items.map((item) => {
-                const href = item.topic
-                  ? `/subjects/${item.subject?.slug ?? ""}/${item.topic.slug}/practice`
-                  : `/subjects/${item.subject?.slug ?? ""}`;
+                // Drill exactly what the plan asks for: topic (when the
+                // subject has one) and the item's question count.
+                const params = new URLSearchParams();
+                if (item.topic) params.set("topic", item.topic.slug);
+                params.set("count", String(Math.min(item.questions, 30)));
+                const href = item.subject
+                  ? `/subjects/${item.subject.slug}/practice?${params.toString()}`
+                  : "/subjects";
                 const isLast = item === day.items[day.items.length - 1];
                 const itemDone =
                   isLast && day.questions > 0 && answeredToday >= day.questions;

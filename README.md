@@ -22,6 +22,7 @@ ma'lumotlarini boshqaruvchi zamonaviy platforma.
 │   ├── core/         # tayanch app (health, izoh)
 │   ├── premium/      # obuna tariflari + kunlik sessiya limiti
 │   ├── gamification/ # XP, daraja va nishonlar (badge)
+│   ├── onboarding/    # 3 qadamli wizard + 7 kunlik o'quv reja
 │   ├── telegrambot/  # Telegram admin bot (bildirishnomalar + statistika)
 │   └── requirements.txt
 ├── frontend/         # Next.js ilova
@@ -136,6 +137,39 @@ docker compose up -d --build
 stack ishga tushmaydi. Qo'shimchacha, PostgreSQL o'zi `POSTGRES_DB` orqali
 yaratiladi; qo'lda o'rnatish uchun `psql -U postgres -f setup_db.sql`.
 
+## Onboarding (3 qadam + 7 kunlik reja)
+
+Yangi o'quvchi ro'yxatdan o'tgach `AuthProvider` bir marta `GET /api/onboarding/`
+so'raydi. `needs_onboarding` true bo'lsa, shaxsiy sahifalar (`/dashboard`,
+`/subjects`, `/mock-exams`, `/history`, ...) `/[locale]/onboarding` ga
+yo'naltiriladi; ochiq sahifalar va `/profile` ochiq qoladi. Wizard'da
+**O'tkazib yuborish** (`POST /api/onboarding/skip/`) qaytib kiritmaydi.
+
+| Qadam | Ma'lumot |
+| ----- | -------- |
+| 1 | Yo'nalish (qidiruv + universitet nomi bo'yicha filter, ixtiyoriy) |
+| 2 | Fanlar (kamida bitta) + DTM imtihon sanasi (kelajakda) |
+| 3 | Kunlik daqiqa (15–480) + daraja (boshlang'ich / o'rta / yuqori) |
+
+`POST /api/onboarding/` javoblarni saqlaydi va reja quradi (`backend/onboarding/plan.py`):
+
+- reja uzunligi = `min(7, imtihonga qolgan kun)` (sana yo'q bo'lsa 7 kun)
+- kunlik savol soni = `daqiqa / 2 × daraja_koeffitsienti` (0.8 / 1.0 / 1.2)
+- daqiqa fanlar orasida **og'irliklangan** bo'linadi: xatolar
+  daftarida (`/mistakes`) hali yechilmagan xatolar bo'lgan fan 1.6× ulush oladi
+- fanlar kunlar bo'ylab round-robin taqsimlanadi, mavzular (topic) aylanadi,
+  kuniga ko'pi bilan 3 band va bandga ko'pi bilan 30 savol (API limiti)
+
+Natija ekranida reja kartalari ko'rsatiladi; bandga bosilganda
+`/subjects/{slug}/practice?topic=&count=` — aynan rejada yozilgan mavzu va
+savol soni ochiladi. Dashboard'da **Bugungi reja** bloki bugungi bandni,
+bajarilgan savollar sonini va progress chizig'ini ko'rsatadi. `/profile` dan
+`Rejani qayta tuzish` orqali javoblar o'zgartirilib, eski reja almashtiriladi.
+
+Telegram bot sozlanganda (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`) reja
+tugagach adminga qisqa xabar boradi; sozlangan bo'lmasa hech narsa yuborilmaydi
+va xatoga olib kelmaydi.
+
 ## MCP bridge autentifikatsiyasi
 
 MCP HTTP transporti ochiq emas — har bir sorov `Authorization` header talab qiladi:
@@ -217,7 +251,12 @@ Kunlik statistika (har kuni 09:00):
 - PHASE 11 (Gamification): ✅ `gamification` app — XP, daraja (200 XP/daftar), 12 ta nishon + `seed_badges`; `GET /api/gamification/badges/`, `POST .../badges/check/`. Sessiya yakunlanganda nishonlar avtomatik beriladi (`new_badges` hisobotda) va `/achievements` sahifasida ko'rsatiladi
 - PHASE 12 (Payments): ✅ `payments` app — Payme (Merchant API JSON-RPC `/webhooks/payme/`, Basic auth, tiyin) va Click (Shop API `/webhooks/click/`, Prepare/Complete md5 sign) webhook'lari; `POST /api/payments/checkout/` (kassa havolasi, `return_path`da locale + `{id}` placeholder) + `GET /api/payments/{id}/` (holat polling), obuna avtomatik faollashadi/faqatgina to'ldiriladi, bekor qilinsa tugaydi; `/premium` da tarif uchun Payme/Click tanlash, `/premium/payment/[id]` holat sahifasi; webhook'lar fail-closed (kalit bo'sh = 401/-91), 29 test PASS
 - Import/export: ✅ `questions/importexport.py` + `manage.py import_questions` / `export_questions` (CSV, `--create-missing`, `--status` filtri), 6 test PASS
-- Backend test: **188/188 PASS** (accounts 16, catalog 12, core 4, gamification 6, mcpbridge 26, payments 29, practice 45, premium 9, questions 22, telegrambot 10, universities 9)
-- Frontend: ✅ `npm run lint` toza, `npm run build` muvaffaqiyatli (51 sahifa); uz/ru/en tarjimalar teng (415 kalit), `/premium` + `/premium/payment/[id]` + `/achievements` + `/reset-password` + `/certificates` + `/verify/[serial]` + `/mistakes` routelari
+- PHASE 13 (Onboarding): ✅ `onboarding` app — `OnboardingProfile` (yo'nalish, fanlar, imtihon sanasi, kunlik daqiqa, daraja, completed/skipped) + `OnboardingPlan` (7 kunlik JSON reja); 3 qadamli wizard `/onboarding` (qidiruv bilan yo'nalish, fanlar + sana, vaqt + daraja), natija ekrani (shaxsiy tavsiya + reja kartalari), `Bugungi reja` bloki dashboard'da, `/profile` da rejani qayta tuzish; auth gate o'quvchi tugallamagan bo'lsa `/onboarding` ga yo'naltiradi (o'tkazib yuborish bor); qoida asosidagi reja (AI emas): kunlik savol soni = vaqt/2 × daraja, imtihonga qolgan kunlar bilan qisqaradi, xatolar daftaridagi zaif fanlar 1.6× ulush oladi
+  - API: `GET /api/onboarding/`, `POST /api/onboarding/` (javob + reja), `GET /api/onboarding/plan/`, `POST /api/onboarding/skip/` (faqat o'z profili, `IsAuthenticated`)
+  - Validatsiya: imtihon sanasi kelajakda, kamida 1 fan, kunlik vaqt 15–480 daqiqa
+  - Reja bandlari to'g'ridan-to'g'ri mashqni ochadi: `/subjects/{slug}/practice?topic=&count=`
+  - Telegram: bot sozlanganda adminga qisqa xabar (sozlanmagan bo'lsa jimgina)
+- Backend test: **215/215 PASS** (accounts 16, catalog 12, core 4, gamification 6, mcpbridge 26, onboarding 24, payments 29, practice 45, premium 9, questions 22, telegrambot 10, universities 9)
+- Frontend: ✅ `npm run lint` toza, `npm run build` muvaffaqiyatli (62 sahifa); uz/ru/en tarjimalar teng (492 kalit), `/premium` + `/premium/payment/[id]` + `/achievements` + `/reset-password` + `/certificates` + `/verify/[serial]` + `/mistakes` + `/history` + `/leaderboard` + `/results/[id]` + `/onboarding` routelari
 - Landing: ✅ 3 ta theme-aware SVG illyustratsiya, aurora/grid hero, scroll reveal
 - API indeks: ✅ `GET /api/` — barcha endpointlar katalogi (resolve testi bilan himoyalangan); security header'lar (CSP/RP/Permissions-Policy)

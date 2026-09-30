@@ -271,6 +271,24 @@ API_ENDPOINTS = [
         "auth": "session",
         "purpose": "Re-evaluate and persist badges from current stats.",
     },
+    {
+        "path": "/api/onboarding/",
+        "method": "GET, POST",
+        "auth": "session",
+        "purpose": "Read the wizard status/profile; submit the 3-step answers and build the 7-day plan.",
+    },
+    {
+        "path": "/api/onboarding/plan/",
+        "method": "GET",
+        "auth": "session",
+        "purpose": "The current student's latest study plan (404 when none exists).",
+    },
+    {
+        "path": "/api/onboarding/skip/",
+        "method": "POST",
+        "auth": "session",
+        "purpose": "Dismiss the onboarding wizard permanently for this account.",
+    },
 ]
 
 

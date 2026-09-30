@@ -70,6 +70,40 @@ class TelegramServicesTests(TestCase):
         with self.settings(TELEGRAM_BOT_TOKEN="", TELEGRAM_CHAT_ID=""):
             self.assertFalse(services.is_configured())
 
+    def test_onboarding_completed_text_contains_plan_details(self):
+        from datetime import timedelta
+
+        from onboarding.models import OnboardingPlan, OnboardingProfile
+
+        profile = OnboardingProfile.objects.create(
+            user=self.user,
+            exam_date=timezone.localdate() + timedelta(days=30),
+            daily_minutes=90,
+            level="middle",
+            completed=True,
+        )
+        profile.subjects.add(self.subject)
+        OnboardingPlan.objects.create(
+            profile=profile,
+            start_date=timezone.localdate(),
+            days=[{"day": 1, "date": timezone.localdate().isoformat(), "items": []}],
+            weak_subject_ids=[self.subject.id],
+        )
+        text = services.onboarding_completed_text(profile)
+        self.assertIn("student1", text)
+        self.assertIn("Matematika", text)
+        self.assertIn("90", text)
+        # HTML-parsed Telegram text: the apostrophe is escaped.
+        self.assertIn("rta", text)
+
+    def test_onboarding_completed_text_without_plan(self):
+        from onboarding.models import OnboardingProfile
+
+        profile = OnboardingProfile.objects.create(user=self.user)
+        text = services.onboarding_completed_text(profile)
+        self.assertIn("student1", text)
+        self.assertNotIn("Reja:", text)
+
 
 class TelegramWebhookTests(TestCase):
     def _post(self, text, chat_id="5458715260", secret="test-secret"):

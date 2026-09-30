@@ -80,9 +80,13 @@ function Flame({ size = 15 }: { size?: number }) {
 export function PracticePlayer({
   slug,
   questionIds,
+  topicSlug,
+  questionCount,
 }: {
   slug?: string;
   questionIds?: number[];
+  topicSlug?: string;
+  questionCount?: number;
 }) {
   const t = useTranslations("common");
   const exam = useTranslations("exam");
@@ -128,9 +132,17 @@ export function PracticePlayer({
     let ignore = false;
     const start$ = mistakesMode
       ? startPractice({ mode: "practice", question_ids: questionIds })
-      : fetchSubject(slug ?? "").then((subject) =>
-          startPractice({ subject: subject.id, question_count: 10, mode: "practice" })
-        );
+      : fetchSubject(slug ?? "").then((subject) => {
+          const topic = topicSlug
+            ? subject.topics.find((t) => t.slug === topicSlug)
+            : undefined;
+          return startPractice({
+            subject: subject.id,
+            topic: topic?.id,
+            question_count: questionCount ?? 10,
+            mode: "practice",
+          });
+        });
     start$
       .then((sess) => {
         if (ignore) return;
@@ -159,7 +171,7 @@ export function PracticePlayer({
       ignore = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, slug, started]);
+  }, [user, slug, topicSlug, questionCount, started]);
 
   const answer = () => {
     if (!sessionId || !question || selected === null || answering.current) return;

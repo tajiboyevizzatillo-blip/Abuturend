@@ -313,6 +313,17 @@ function PlanResult({ plan }: { plan: OnboardingPlan }) {
   const locale = useLocale();
   const dateFmt = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short" });
 
+  // "Mashqni boshlash" jumps straight into day 1, first block of the plan.
+  const firstItem = plan.days[0]?.items[0];
+  const firstPracticeHref = firstItem?.subject
+    ? `/subjects/${firstItem.subject.slug}/practice?${
+        new URLSearchParams({
+          ...(firstItem.topic ? { topic: firstItem.topic.slug } : {}),
+          count: String(Math.min(firstItem.questions, 30)),
+        }).toString()
+      }`
+    : "/subjects";
+
   return (
     <div className="page-enter flex flex-col gap-6">
       <div className="bg-navy relative overflow-hidden rounded-3xl p-6 text-white sm:p-8">
@@ -368,9 +379,14 @@ function PlanResult({ plan }: { plan: OnboardingPlan }) {
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-base font-bold">{t("planTitle")}</h3>
-          <Link href="/dashboard" className="btn btn-primary">
-            {t("startPractice")}
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/onboarding" className="btn btn-secondary">
+              {t("rebuild")}
+            </Link>
+            <Link href={firstPracticeHref} className="btn btn-primary">
+              {t("startPractice")}
+            </Link>
+          </div>
         </div>
         {plan.weak_subjects.length ? (
           <Alert variant="info">{t("weakNote", {
