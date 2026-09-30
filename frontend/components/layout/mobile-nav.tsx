@@ -94,6 +94,7 @@ export function MobileNav() {
                     ["/subjects", "subjects"],
                     ["/mock-exams", "mockExams"],
                     ["/mistakes", "mistakes"],
+                    ["/weak-skills", "weakSkills"],
                     ["/leaderboard", "leaderboard"],
                     ["/universities", "universities"],
                     ["/premium", "premium"],

@@ -1,4 +1,4 @@
-from django.conf import settings
+﻿from django.conf import settings
 from django.db import models
 
 from catalog.models import Subject, Subtopic, Topic
@@ -80,6 +80,14 @@ class Question(TimeStampedModel):
     class Meta:
         ordering = ["-id"]
         db_table = "questions_question"
+        indexes = [
+            # Zaif mavzular radari (practice/weak_skills.py) mashq uchun
+            # savollarni shu tartibda filtrlaydi: topic_id IN (...) AND
+            # is_active AND status. FK ustuniga Django o'z indeksini qo'yadi,
+            # lekin birinchi ustun topic bo'lganda filtr to'g'ridan-to'g'ri
+            # indeksdan foydalanadi.
+            models.Index(fields=["topic", "is_active"], name="questions_topic_active"),
+        ]
 
     def __str__(self):
         return self.text_uz[:60]

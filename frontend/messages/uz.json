@@ -20,7 +20,8 @@
     "language": "Til",
     "telegramBot": "Telegram bot",
     "menu": "Menyu",
-    "leaderboard": "Reyting"
+    "leaderboard": "Reyting",
+    "weakSkills": "Zaif mavzular"
   },
   "common": {
     "loading": "Yuklanmoqda...",
@@ -451,7 +452,8 @@
     "limitNote": "Bir mashqda 30 tagacha savol",
     "start": "Mashq qilish ({count})",
     "startTitle": "Xatolar bo'yicha mashq",
-    "startNotice": "{count} ta xato savol bo'yicha mashq boshlanadi"
+    "startNotice": "{count} ta xato savol bo'yicha mashq boshlanadi",
+    "toRadar": "Mavzular bo'yicha ko'rish"
   },
   "leaderboard": {
     "title": "Reyting",
@@ -534,5 +536,33 @@
     "rebuild": "Rejani qayta tuzish",
     "planSettingsTitle": "O'quv rejasi",
     "planSettingsHint": "Yo'nalish, fanlar, imtihon sanasi yoki kunlik vaqtni o'zgartirib rejani qayta tuzing."
+  },
+  "weakSkills": {
+    "title": "Zaif mavzular radari",
+    "subtitle": "Fan va mavzu bo'yicha aniqlik. Zaif mavzulardan mashq qiling.",
+    "radarTitle": "Fanlar bo'yicha aniqlik",
+    "topicsTitle": "Mavzular",
+    "weakTitle": "Eng zaif mavzular",
+    "rules": "Kamida {min} ta javob В· chegarР° {threshold}%",
+    "notEnough": "yetarli ma'lumot yo'q",
+    "answered": "{count} javob",
+    "practice": "Mashq qilish",
+    "practiceAll": "Hammasini mashq qilish",
+    "noWeak": "Zaif mavzu topilmadi вЂ” ajoyib!",
+    "noTopics": "Bu fanda hali mashq qilingan mavzu yo'q",
+    "wrongCount": "{count} ta xato",
+    "wrongShort": "{count} xato",
+    "other": "mavzusiz",
+    "notEnoughAnswers": "Hozir {count} ta javob вЂ” kamida {min} ta kerak",
+    "loadError": "Radar ma'lumotlarini yuklab bo'lmadi",
+    "empty": "Avval bir nechta mashq bajaring вЂ” radar shundan keyin to'libadi.",
+    "emptyCta": "Mashqni boshlash",
+    "practiceError": "Mashqni boshlab bo'lmadi",
+    "lockedTitle": "Yana {count} ta zaif mavzu yashirilgan",
+    "lockedHint": "PRO tarifda barcha mavzular, tarix va zaif mavzular bo'yicha mashq ochiladi.",
+    "lockedCta": "PRO tarifga o'tish",
+    "toMistakes": "Xatolar daftari",
+    "toPlan": "Rejam",
+    "historyNote": "PRO: 14 kunlik tarix"
   }
 }

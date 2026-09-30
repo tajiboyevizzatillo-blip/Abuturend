@@ -42,7 +42,7 @@ def _handle_command(text, chat_id):
             [
                 [("📊 Statistika", "stats"), ("🏆 Reyting", "top")],
                 [("🩺 Holat", "status"), ("📈 7 kun", "trend")],
-                [("❓ Yordam", "help")],
+                [("🎯 Zaif mavzular", "weak"), ("❓ Yordam", "help")],
             ],
         )
     elif text == "/help":
@@ -55,6 +55,10 @@ def _handle_command(text, chat_id):
         services.send_message(services.status_text(), chat_id=chat_id)
     elif text in ("/trend", "trend", "📈 7 kun"):
         services.send_message(services.daily_trend_text(), chat_id=chat_id)
+    elif text in ("/weak", "weak", "🎯 Zaif mavzular"):
+        # Bot hisobga bog'lanmagan bo'lishi mumkin — `weak_skills_text` bu
+        # holatda xato bermaydi, tushuntirish qaytaradi.
+        services.send_message(services.weak_skills_text(chat_id), chat_id=chat_id)
     elif text == "/id":
         services.send_message(
             f"<b>Chat ID</b>: <code>{chat_id}</code>", chat_id=chat_id

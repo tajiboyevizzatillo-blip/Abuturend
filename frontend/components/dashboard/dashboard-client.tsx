@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fetchStatsSummary, type StatsSummary } from "@/lib/stats";
 import { fetchOnboardingPlan, type OnboardingPlan } from "@/lib/onboarding";
 import { TodayPlanCard } from "@/components/dashboard/today-plan-card";
+import { WeakTopicCard } from "@/components/dashboard/weak-topic-card";
 import { cn } from "@/lib/utils";
 
 function Flame({ size = 18 }: { size?: number }) {
@@ -317,7 +318,10 @@ export function DashboardClient() {
             </Card>
           </div>
 
-          {/* Subject breakdown */}
+          {/* Weakest topic with a one-click drill (independent of the stats request). */}
+      <WeakTopicCard />
+
+      {/* Subject breakdown */}
           <Card className="rounded-2xl">
             <CardHeader className="flex flex-row items-center justify-between gap-2 sm:px-6 sm:pt-6">
               <CardTitle className="flex items-center gap-2 text-base">

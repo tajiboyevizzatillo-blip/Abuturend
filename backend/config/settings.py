@@ -247,6 +247,27 @@ CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", False)
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+# ---- Weak-skill radar (zaif mavzular radari) -------------------------------
+# Mavzu bo'yicha aniqlik hisoblanadi va "zaif" deb belgilanadi:
+#
+#   WEAK_SKILL_MIN_ANSWERS  bitta mavzuni baholash uchun minimal javob soni.
+#                          Ostida statistika ishonchsiz bo'ladi, shuning uchun
+#                          mavzu "yetarli ma'lumot yo'q" deb belgilanadi va
+#                          zaif hisoblanmaydi.
+#   WEAK_SKILL_THRESHOLD    zaif deb hisoblash chegarasi (foiz, 0-100).
+#   WEAK_SKILL_TOPIC_LIMIT  "eng zaif mavzular" ro'yxatida chiqadigan mavzular.
+#   WEAK_SKILL_FREE_TOPICS  bepul tarifda ko'rinadigan zaif mavzular soni.
+WEAK_SKILL_MIN_ANSWERS = env_int("WEAK_SKILL_MIN_ANSWERS", 5)
+WEAK_SKILL_THRESHOLD = env_int("WEAK_SKILL_THRESHOLD", 60)
+WEAK_SKILL_TOPIC_LIMIT = env_int("WEAK_SKILL_TOPIC_LIMIT", 5)
+WEAK_SKILL_FREE_TOPICS = env_int("WEAK_SKILL_FREE_TOPICS", 3)
+# Zaif mavzulardan avtomatik sessiya yaratishda olinadigan savollar soni.
+WEAK_SKILL_PRACTICE_COUNT = env_int("WEAK_SKILL_PRACTICE_COUNT", 20)
+
+# Telegram botdagi /weak buyrug'i uchun bog'langan hisob (username yoki id).
+# Bo'sh yoki topilmasa bot xato bermaydi, faqat "bog'lanmagan" deydi.
+TELEGRAM_LINKED_USER = os.environ.get("TELEGRAM_LINKED_USER", "")
+
 # ---- Logging ---------------------------------------------------------------
 
 LOGGING = {

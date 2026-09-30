@@ -234,6 +234,46 @@ Kunlik statistika (har kuni 09:00):
 0 9 * * * root docker exec $(docker ps -qf name=abiturend-backend) python manage.py tg_stats
 ```
 
+## Zaif mavzular radari (Weak-skill radar)
+
+Fan va mavzu bo'yicha aniqlikni ko'rsatadi, zaif mavzularni aniqlaydi va ular
+bo'yicha bir bosqichda mashq boshlashga imkon beradi (masalan
+"Matematika: Funksiyalar — 41%").
+
+| Element | Qanday ishlaydi |
+| ------- | ---------------- |
+| Sahifa | `/[locale]/weak-skills` (header va mobil menyudan ochiq) |
+| Radar | Har bir fan — bitta o'q, qiymati shu fandagi aniqlik (%) |
+| Fan kesimi | Fan tanlanganda mavzular bo'yicha gorizontal chiziqli diagramma (foiz + xato soni) |
+| Ranglar | 0–40% qizil, 40–70% sariq, 70%+ yashil; foiz matni har doim ko'rinadi |
+| Zaiflik qoidasi | Aniqlik `WEAK_SKILL_THRESHOLD` (60%) dan past **va** kamida `WEAK_SKILL_MIN_ANSWERS` (5) ta javob bo'lsa |
+| "Boshqa" | Mavzusiz savollar alohida guruhga tushadi (`is_other`) |
+| Mashq | "Mashq qilish" -> mavjud mashq tizimi orqali sessiya (jami kunlik limit hisobga olinadi) |
+| Tarif | Free: fan radari + eng zaif 3 mavzu; PRO: barcha mavzular, 14 kunlik tarix, zaif mavzular bo'yicha mashq |
+
+API:
+
+| Endpoint | Vazifasi |
+| -------- | -------- |
+| `GET /api/weak-skills/` | Fanlar radari + eng zaif mavzular + qoidalar |
+| `GET /api/weak-skills/<fan>/` | Fan ichidagi mavzular (fan `id` yoki `slug` bo'lishi mumkin); PRO uchun `history` |
+| `POST /api/weak-skills/practice/` | Zaif mavzular (`topic_ids`) yoki fan (`subject`) bo'yicha mashq sessiyasi yaratadi (PRO) |
+
+Sozlamalar (ixtiyoriy, `.env`):
+
+```
+WEAK_SKILL_MIN_ANSWERS=5      # mavzuni baholash uchun minimal javob
+WEAK_SKILL_THRESHOLD=60       # zaif deb hisoblash chegarasi (%)
+WEAK_SKILL_TOPIC_LIMIT=5      # "eng zaif" ro'yxat uzunligi
+WEAK_SKILL_FREE_TOPICS=3      # bepul tarifda ko'rinadigan zaif mavzular
+WEAK_SKILL_PRACTICE_COUNT=20  # zaif mavzulardan olinadigan savollar soni
+TELEGRAM_LINKED_USER=         # /weak buyrug'i uchun bog'langan hisob (username yoki id)
+```
+
+> Barcha statistika o'quvchining **o'z** javoblaridan agregat bilan hisoblanadi
+> (alohida jadval yo'q), shuning uchun yangi javob berilishi bilan darhol
+> yangilanadi.
+
 ## Status
 
 - PHASE 1 (Foundation): ✅ backend check + migratsiya + health / frontend build + lint + i18n + landing
@@ -256,7 +296,8 @@ Kunlik statistika (har kuni 09:00):
   - Validatsiya: imtihon sanasi kelajakda, kamida 1 fan, kunlik vaqt 15–480 daqiqa
   - Reja bandlari to'g'ridan-to'g'ri mashqni ochadi: `/subjects/{slug}/practice?topic=&count=`
   - Telegram: bot sozlanganda adminga qisqa xabar (sozlanmagan bo'lsa jimgina)
-- Backend test: **215/215 PASS** (accounts 16, catalog 12, core 4, gamification 6, mcpbridge 26, onboarding 24, payments 29, practice 45, premium 9, questions 22, telegrambot 10, universities 9)
-- Frontend: ✅ `npm run lint` toza, `npm run build` muvaffaqiyatli (62 sahifa); uz/ru/en tarjimalar teng (492 kalit), `/premium` + `/premium/payment/[id]` + `/achievements` + `/reset-password` + `/certificates` + `/verify/[serial]` + `/mistakes` + `/history` + `/leaderboard` + `/results/[id]` + `/onboarding` routelari
+- PHASE 14 (Zaif mavzular radari): ✅ `practice/weak_skills.py` — fan va mavzu bo'yicha aniqlik (aggregat, alohida jadvalsiz), kamida 5 javob qoidasi, 60% zaif chegarasi (env bilan sozlanadi); `GET /api/weak-skills/`, `GET /api/weak-skills/<fan>/`, `POST /api/weak-skills/practice/`; `/[locale]/weak-skills` sahifasi (SVG radar, fan kesimi, zaif mavzular + mashq, PRO CTA), `/mistakes` dan havola, dashboard `WeakTopicCard`, Telegram `/weak`; 19 test PASS
+- Backend test: **234/234 PASS** (accounts 16, catalog 12, core 4, gamification 6, mcpbridge 26, onboarding 24, payments 29, practice 64, premium 9, questions 22, telegrambot 10, universities 9)
+- Frontend: ✅ `npm run lint` toza, `npm run build` muvaffaqiyatli (63 sahifa); uz/ru/en tarjimalar teng, `/premium` + `/premium/payment/[id]` + `/achievements` + `/reset-password` + `/certificates` + `/verify/[serial]` + `/mistakes` + `/weak-skills` + `/history` + `/leaderboard` + `/results/[id]` + `/onboarding` routelari
 - Landing: ✅ 3 ta theme-aware SVG illyustratsiya, aurora/grid hero, scroll reveal
 - API indeks: ✅ `GET /api/` — barcha endpointlar katalogi (resolve testi bilan himoyalangan); security header'lar (CSP/RP/Permissions-Policy)

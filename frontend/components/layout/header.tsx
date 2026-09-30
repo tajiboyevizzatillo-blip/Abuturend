@@ -35,6 +35,9 @@ export function Header() {
           <Link href="/mistakes" className="transition-colors hover:text-foreground">
             {t("mistakes")}
           </Link>
+          <Link href="/weak-skills" className="transition-colors hover:text-foreground">
+            {t("weakSkills")}
+          </Link>
           <Link href="/leaderboard" className="transition-colors hover:text-foreground">
             {t("leaderboard")}
           </Link>

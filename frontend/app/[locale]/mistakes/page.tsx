@@ -71,6 +71,12 @@ export default function MistakesPage() {
           ) : null}
         </div>
 
+        {/* Cross-link: the notebook lists questions, the radar groups them by
+            topic and accuracy — the two views answer different questions. */}
+        <Link href="/weak-skills" className="btn btn-ghost self-start">
+          {t("toRadar")}
+        </Link>
+
         {error ? <Alert variant="danger">{t("loadError")}</Alert> : null}
 
         {!items && !error ? (

@@ -8,12 +8,28 @@ from .views import (
     LeaderboardView,
     PracticeSessionViewSet,
 )
+from .weak_skills import (
+    WeakSkillPracticeView,
+    WeakSkillRadarView,
+    WeakSkillSubjectView,
+)
 
 router = SimpleRouter()
 router.register("sessions", PracticeSessionViewSet, basename="session")
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("weak-skills/", WeakSkillRadarView.as_view(), name="weak-skills"),
+    path(
+        "weak-skills/practice/",
+        WeakSkillPracticeView.as_view(),
+        name="weak-skills-practice",
+    ),
+    path(
+        "weak-skills/<str:subject>/",
+        WeakSkillSubjectView.as_view(),
+        name="weak-skills-subject",
+    ),
     path("stats/summary/", StatsSummaryView.as_view(), name="stats-summary"),
     path("stats/mistakes/", MistakesView.as_view(), name="stats-mistakes"),
     path("leaderboard/", LeaderboardView.as_view(), name="leaderboard"),

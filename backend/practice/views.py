@@ -38,6 +38,78 @@ PUBLISHED_ACTIVE = Q(is_active=True) & Q(status=Question.Status.PUBLISHED)
 DEFAULT_EXAM_MINUTES = 60
 
 
+def create_practice_session(
+    user, pool, mode, subject=None, topic=None, duration_minutes=None, deadline_at=None
+):
+    """Create a session and pre-fill it with ``pool`` questions.
+
+    Extracted from ``PracticeSessionViewSet.create`` so other features that
+    build a session from a question list (weak-skill practice) reuse the exact
+    same code path instead of duplicating session bookkeeping.
+    """
+    session = PracticeSession.objects.create(
+        user=user,
+        mode=mode,
+        subject=subject,
+        topic=topic,
+        question_count=len(pool),
+        duration_minutes=duration_minutes,
+        deadline_at=deadline_at,
+    )
+    session.answers.bulk_create(
+        [PracticeAnswer(session=session, question=q) for q in pool]
+    )
+    return session
+
+
+def first_unanswered(session):
+    """The next question to serve, scoped strictly to this session.
+
+    Looking at ``Question`` and excluding anything answered anywhere leaks
+    across sessions: the same question can legitimately sit in two of a
+    student's sessions, and answering it in one used to hide it in the other.
+    """
+    return (
+        session.answers.filter(selected_option__isnull=True)
+        .select_related("question")
+        .order_by("id")
+        .first()
+    )
+
+
+def session_payload(session, first_question=False):
+    """Serialized session for the client (shared by every entry point)."""
+    # While an exam runs, the running score would let a student binary-search
+    # the correct option by re-answering and diffing the counts.
+    hide_score = (
+        session.mode == PracticeSession.Mode.EXAM
+        and session.status != PracticeSession.Status.FINISHED
+    )
+    payload = {
+        "id": session.id,
+        "mode": session.mode,
+        "subject": session.subject_id,
+        "unified": session.subject_id is None
+        and session.mode == PracticeSession.Mode.EXAM,
+        "topic": session.topic_id,
+        "status": session.status,
+        "question_count": session.question_count,
+        "progress_index": session.progress_index,
+        "correct_answers": None if hide_score else session.correct_answers,
+        "incorrect_answers": None if hide_score else session.incorrect_answers,
+        "duration_minutes": session.duration_minutes,
+        "deadline_at": (session.deadline_at.isoformat() if session.deadline_at else None),
+        "started_at": session.started_at.isoformat(),
+        "finished_at": session.finished_at.isoformat() if session.finished_at else None,
+    }
+    if first_question:
+        answer = first_unanswered(session)
+        payload["current_question"] = (
+            PracticeQuestionSerializer(answer.question).data if answer else None
+        )
+    return payload
+
+
 class LeaderboardView(APIView):
     permission_classes = [AllowAny]
 
@@ -170,25 +242,22 @@ class PracticeSessionViewSet(viewsets.ModelViewSet):
                     {"detail": detail},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            # Pool smaller than requested: shrink session to the available count so
-            # tiny question banks still produce a working exam instead of a hard error.
-            actual_count = len(pool)
+            # Pool smaller than requested: create_practice_session shrinks the
+            # session to the available count so tiny question banks still
+            # produce a working exam instead of a hard error.
             duration = data.get("duration_minutes")
             deadline = None
             if data["mode"] == PracticeSession.Mode.EXAM:
                 duration = duration or DEFAULT_EXAM_MINUTES
                 deadline = timezone.now() + timedelta(minutes=duration)
-            session = PracticeSession.objects.create(
-                user=request.user,
+            session = create_practice_session(
+                request.user,
+                pool,
                 mode=data["mode"],
                 subject=data.get("subject"),
                 topic=data.get("topic"),
-                question_count=actual_count,
                 duration_minutes=duration,
                 deadline_at=deadline,
-            )
-            session.answers.bulk_create(
-                [PracticeAnswer(session=session, question=q) for q in pool]
             )
         return Response(
             self._session_payload(session, first_question=True),
@@ -200,18 +269,7 @@ class PracticeSessionViewSet(viewsets.ModelViewSet):
         return Response(self._session_payload(session))
 
     def _first_unanswered(self, session):
-        """The next question to serve, scoped strictly to this session.
-
-        Looking at ``Question`` and excluding anything answered anywhere leaks
-        across sessions: the same question can legitimately sit in two of a
-        student's sessions, and answering it in one used to hide it in the other.
-        """
-        return (
-            session.answers.filter(selected_option__isnull=True)
-            .select_related("question")
-            .order_by("id")
-            .first()
-        )
+        return first_unanswered(session)
 
     def _recompute_progress(self, session):
         """Recompute the session counters from the answers, both directions.
@@ -231,37 +289,7 @@ class PracticeSessionViewSet(viewsets.ModelViewSet):
         return correct
 
     def _session_payload(self, session, first_question=False):
-        # While an exam runs, the running score would let a student binary-search
-        # the correct option by re-answering and diffing the counts.
-        hide_score = (
-            session.mode == PracticeSession.Mode.EXAM
-            and session.status != PracticeSession.Status.FINISHED
-        )
-        payload = {
-            "id": session.id,
-            "mode": session.mode,
-            "subject": session.subject_id,
-            "unified": session.subject_id is None
-            and session.mode == PracticeSession.Mode.EXAM,
-            "topic": session.topic_id,
-            "status": session.status,
-            "question_count": session.question_count,
-            "progress_index": session.progress_index,
-            "correct_answers": None if hide_score else session.correct_answers,
-            "incorrect_answers": None if hide_score else session.incorrect_answers,
-            "duration_minutes": session.duration_minutes,
-            "deadline_at": (
-                session.deadline_at.isoformat() if session.deadline_at else None
-            ),
-            "started_at": session.started_at.isoformat(),
-            "finished_at": session.finished_at.isoformat() if session.finished_at else None,
-        }
-        if first_question:
-            answer = self._first_unanswered(session)
-            payload["current_question"] = (
-                PracticeQuestionSerializer(answer.question).data if answer else None
-            )
-        return payload
+        return session_payload(session, first_question=first_question)
 
     @action(detail=True, methods=["get"], url_path="current")
     def current(self, request, pk=None):

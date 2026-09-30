@@ -20,7 +20,8 @@
     "language": "Language",
     "telegramBot": "Telegram bot",
     "menu": "Menu",
-    "leaderboard": "Leaderboard"
+    "leaderboard": "Leaderboard",
+    "weakSkills": "Weak topics"
   },
   "common": {
     "loading": "Loading...",
@@ -451,7 +452,8 @@
     "limitNote": "Up to 30 questions per session",
     "start": "Start ({count})",
     "startTitle": "Mistakes drill",
-    "startNotice": "A session of {count} questions you got wrong"
+    "startNotice": "A session of {count} questions you got wrong",
+    "toRadar": "View by topic"
   },
   "leaderboard": {
     "title": "Leaderboard",
@@ -534,5 +536,33 @@
     "rebuild": "Rebuild the plan",
     "planSettingsTitle": "Study plan",
     "planSettingsHint": "Change your major, subjects, exam date or daily time and rebuild the plan."
+  },
+  "weakSkills": {
+    "title": "Weak topic radar",
+    "subtitle": "Accuracy by subject and topic. Practise your weakest topics.",
+    "radarTitle": "Accuracy by subject",
+    "topicsTitle": "Topics",
+    "weakTitle": "Weakest topics",
+    "rules": "At least {min} answers В· threshold {threshold}%",
+    "notEnough": "not enough data",
+    "answered": "{count} answers",
+    "practice": "Practise",
+    "practiceAll": "Practise all",
+    "noWeak": "No weak topics вЂ” great!",
+    "noTopics": "No practised topics in this subject yet",
+    "wrongCount": "{count} wrong",
+    "wrongShort": "{count} wrong",
+    "other": "no topic",
+    "notEnoughAnswers": "{count} answers so far вЂ” at least {min} needed",
+    "loadError": "Failed to load the radar",
+    "empty": "Do a few practice sessions first вЂ” the radar fills up with answers.",
+    "emptyCta": "Start practising",
+    "practiceError": "Could not start the practice session",
+    "lockedTitle": "{count} more weak topics hidden",
+    "lockedHint": "PRO unlocks every topic, the history and weak-topic practice.",
+    "lockedCta": "Switch to PRO",
+    "toMistakes": "Mistakes notebook",
+    "toPlan": "My plan",
+    "historyNote": "PRO: 14-day history"
   }
 }

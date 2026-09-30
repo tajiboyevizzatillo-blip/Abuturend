@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
@@ -11,6 +11,7 @@ import { ProtectedShell } from "@/components/layout/protected-shell";
 import { Paywall } from "@/components/premium/paywall";
 import { fetchSubject } from "@/lib/catalog";
 import { ApiError } from "@/lib/api";
+import type { PracticeSession } from "@/lib/sessions";
 import {
   fetchCurrent,
   finishSession,
@@ -82,11 +83,18 @@ export function PracticePlayer({
   questionIds,
   topicSlug,
   questionCount,
+  startSession,
 }: {
   slug?: string;
   questionIds?: number[];
   topicSlug?: string;
   questionCount?: number;
+  /**
+   * Custom session factory (weak-skill radar). When provided it replaces the
+   * built-in starters, so a feature can create a session through its own
+   * endpoint and still reuse this player instead of writing a second one.
+   */
+  startSession?: () => Promise<PracticeSession>;
 }) {
   const t = useTranslations("common");
   const exam = useTranslations("exam");
@@ -105,7 +113,7 @@ export function PracticePlayer({
   const [selected, setSelected] = useState<number | null>(null);
   const [result, setResult] = useState<AnswerResult | null>(null);
   // The session (and the daily free quota) is only created on an explicit
-  // Start click — merely opening the page must not burn a session.
+  // Start click вЂ” merely opening the page must not burn a session.
   const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,16 +131,24 @@ export function PracticePlayer({
   const answering = useRef(false);
   const advancing = useRef(false);
 
-  const subjectLink = mistakesMode ? "/mistakes" : `/subjects/${slug}`;
+  // A custom starter (weak-skill radar) keeps its own page as the way back.
+  const homeLink = startSession
+    ? "/weak-skills"
+    : mistakesMode
+      ? "/mistakes"
+      : `/subjects/${slug}`;
+  const subjectLink = homeLink;
   // Where "start" sends guests and where the finish card sends the student.
-  const pageLink = mistakesMode ? "/mistakes" : `/subjects/${slug}/practice`;
+  const pageLink = startSession ? "/weak-skills" : mistakesMode ? "/mistakes" : `/subjects/${slug}/practice`;
 
   useEffect(() => {
     if (!user || !started) return;
     let ignore = false;
-    const start$ = mistakesMode
-      ? startPractice({ mode: "practice", question_ids: questionIds })
-      : fetchSubject(slug ?? "").then((subject) => {
+    const start$ = startSession
+      ? startSession()
+      : mistakesMode
+        ? startPractice({ mode: "practice", question_ids: questionIds })
+        : fetchSubject(slug ?? "").then((subject) => {
           const topic = topicSlug
             ? subject.topics.find((t) => t.slug === topicSlug)
             : undefined;
@@ -156,7 +172,7 @@ export function PracticePlayer({
       .catch((e) => {
         if (ignore) return;
         if (e instanceof ApiError && e.status === 402) {
-          // Daily free limit reached — a plan is needed, retrying won't help.
+          // Daily free limit reached вЂ” a plan is needed, retrying won't help.
           setPaywall(true);
           return;
         }
@@ -271,7 +287,7 @@ export function PracticePlayer({
         {/* Topbar */}
         <div className="mb-5 flex items-center justify-between gap-3">
           <Link href={subjectLink} className="btn btn-ghost btn-sm">
-            ← {t("back")}
+            в†ђ {t("back")}
           </Link>
           <div className="flex items-center gap-3">
             {streak >= 2 ? (
@@ -309,7 +325,7 @@ export function PracticePlayer({
             </Link>
           </div>
         ) : !started ? (
-          /* Landing card — the session (and daily quota) is only created
+          /* Landing card вЂ” the session (and daily quota) is only created
              when the student explicitly starts. */
           <Card className="pop flex flex-col items-center gap-5 p-10 text-center">
             <span className="badge badge-primary">DTM</span>
@@ -324,7 +340,7 @@ export function PracticePlayer({
             <Button
               onClick={() => {
                 // Guests can preview this page (public prefix) but a session
-                // needs an account — send them to login instead of a spinner.
+                // needs an account вЂ” send them to login instead of a spinner.
                 if (!user) {
                   router.replace(`/login?next=${encodeURIComponent(pageLink)}`);
                   return;
@@ -385,7 +401,7 @@ export function PracticePlayer({
                 ))}
               </div>
             ) : score !== null ? (
-              /* Finish — score ring + summary (Quizzler-style) */
+              /* Finish вЂ” score ring + summary (Quizzler-style) */
               <Card className="pop flex flex-col items-center gap-6 p-10 text-center">
                 <div
                   className="relative h-36 w-36"
@@ -532,12 +548,12 @@ export function PracticePlayer({
             {!result ? (
               <Button onClick={answer} disabled={selected === null} className="mt-1">
                 {exam("submitAnswer")}
-                {selected !== null ? <span className="opacity-70">↵</span> : null}
+                {selected !== null ? <span className="opacity-70">в†µ</span> : null}
               </Button>
             ) : (
               <Button variant={result.is_correct ? "primary" : "secondary"} onClick={next} className="mt-1">
                 {progress.answered >= progress.total ? exam("finish") : t("next")}
-                <span className="opacity-70">↵</span>
+                <span className="opacity-70">в†µ</span>
               </Button>
             )}
           </div>

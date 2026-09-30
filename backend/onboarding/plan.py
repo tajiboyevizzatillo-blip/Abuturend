@@ -54,6 +54,25 @@ def weak_subject_ids(user, limit=3):
     return [r["question__subject_id"] for r in rows if r["question__subject_id"]]
 
 
+def weak_topic_ids(user, subject_ids, limit=8):
+    """Topic ids of the *weak* topics, used to weight the daily plan.
+
+    Reuses the radar's own rules (min answers + accuracy threshold) so the
+    onboarding plan and /weak-skills never disagree about what "weak" means.
+    Returns [] when the student has too little data — in that case the plan
+    falls back to the plain subject weighting.
+    """
+    from practice.weak_skills import topic_stats
+
+    wanted = set(subject_ids or [])
+    if not wanted:
+        return []
+    rows = [
+        t for t in topic_stats(user) if t["is_weak"] and t["topic_id"] and t["subject_id"] in wanted
+    ]
+    return [t["topic_id"] for t in rows[:limit]]
+
+
 def mastered_question_ids(user):
     """Question ids the student has since answered correctly (in any session)."""
     return list(
@@ -107,6 +126,11 @@ def build_plan(profile):
     if not subject_ids:
         return today, [], []
 
+    # Zaif *mavzular* radaridan olinadi: kunlik bloklarda birinchi o'rnda
+    # ularga savol ajratiladi (fan bo'yicha umumiy og'irlikdan keyin).
+    weak_topics = weak_topic_ids(profile.user, subject_ids)
+    weak_topic_set = set(weak_topics)
+
     days_left = profile.days_left
     # No exam date -> always a full week; an imminent exam -> shrink the plan.
     span = PLAN_DAYS if days_left is None else max(1, min(PLAN_DAYS, days_left))
@@ -133,9 +157,16 @@ def build_plan(profile):
             ):
                 take = min(remaining, MAX_QUESTIONS_PER_ITEM)
                 # Rotate topics so the same subject is not drilled on the same
-                # topic every single day.
+                # topic every single day. Radar's weak topics go first.
                 topic_pool = subject_topics[sid]
                 topic_id = topic_pool[(day["day"] - 1) % len(topic_pool)] if topic_pool else None
+                if weak_topic_set:
+                    # First item of the day always lands on the weakest topic
+                    # of that subject (radar data), the rest rotate.
+                    candidate = [
+                        t for t in topic_pool if t in weak_topic_set and t != topic_id
+                    ]
+                    topic_id = candidate[(day["day"] - 1) % len(candidate)] if candidate else topic_id
                 day["items"].append(
                     {
                         "subject_id": sid,

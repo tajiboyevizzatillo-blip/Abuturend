@@ -1,8 +1,8 @@
-"""Telegram bildirishnomalar uchun yordamchi xizmatlar.
+﻿"""Telegram bildirishnomalar uchun yordamchi xizmatlar.
 
 Bot token/chat id env orqali sozlanadi (TELEGRAM_BOT_TOKEN,
 TELEGRAM_CHAT_ID, TELEGRAM_ALLOWED_CHAT_IDS). Sozlanmagan bo'lsa barcha
-chaqiruvlar hech narsa qilmaydi — rivojlanayotganda bloklanmaydi.
+chaqiruvlar hech narsa qilmaydi вЂ” rivojlanayotganda bloklanmaydi.
 """
 
 import json
@@ -176,15 +176,15 @@ def send_onboarding_completed(profile):
 
 def question_submitted_text(question):
     author = question.created_by
-    subject = question.subject.name_uz if question.subject_id else "—"
+    subject = question.subject.name_uz if question.subject_id else "вЂ”"
     snippet = (question.text_uz or "").strip().replace("\n", " ")[:120]
-    author_name = author.get_full_name() if author else "—"
+    author_name = author.get_full_name() if author else "вЂ”"
     if not author_name.strip():
-        author_name = author.username if author else "—"
+        author_name = author.username if author else "вЂ”"
     return (
         "<b>\U0001f9d1\u200d\U0001f4bb O'qituvchi yangi savol qo'shdi</b>\n\n"
         f"\U0001f4da Fan: <b>{html_escape(subject)}</b>\n"
-        f"\U0001f4dd Savol: {html_escape(snippet) or '—'}\n"
+        f"\U0001f4dd Savol: {html_escape(snippet) or 'вЂ”'}\n"
         f"\U0001f464 Muallif: {html_escape(author_name)}\n"
         f"\U0001f550 {timezone.localtime(question.created_at):%d.%m.%Y %H:%M}\n"
         "\u23f3 Holati: tekshiruvda"
@@ -233,10 +233,10 @@ def daily_stats_text():
     accuracy = (
         round((correct_today / answers_today) * 100) if answers_today else None
     )
-    accuracy_text = f"{accuracy}%" if accuracy is not None else "—"
+    accuracy_text = f"{accuracy}%" if accuracy is not None else "вЂ”"
 
     return (
-        "<b>\U0001f4ca Abiturend — statistika</b>\n"
+        "<b>\U0001f4ca Abiturend вЂ” statistika</b>\n"
         f"\U0001f5d3\ufe0f {today:%d.%m.%Y}\n\n"
         f"\U0001f465 Jami foydalanuvchilar: <b>{total_users}</b>\n"
         f"\U0001f195 Bugun ro'yxatdan o'tganlar: <b>{users_today}</b>\n"
@@ -255,7 +255,7 @@ def send_daily_stats():
 
 
 def leaderboard_text(limit=10):
-    """Top abituriyentlar — to'g'ri javoblar soni bo'yicha."""
+    """Top abituriyentlar вЂ” to'g'ri javoblar soni bo'yicha."""
     from django.contrib.auth import get_user_model
     from django.db.models import Count, F, Sum
 
@@ -284,7 +284,7 @@ def leaderboard_text(limit=10):
     )
     if not qs.exists():
         return "<b>\U0001f3c5 Reyting</b>\n\nHozircha natijalar mavjud emas. Abiturientlar test topshirishni boshlashlari kerak!"
-    lines = ["<b>\U0001f3c5 Abiturend — TOP bilimdonlar</b>", ""]
+    lines = ["<b>\U0001f3c5 Abiturend вЂ” TOP bilimdonlar</b>", ""]
     medals = ["\U0001f947", "\U0001f948", "\U0001f949"]
     for i, user in enumerate(qs, start=1):
         name = user.first_name or user.username
@@ -292,7 +292,7 @@ def leaderboard_text(limit=10):
         acc = round(user.correct * 100 / user.total) if user.total else 0
         lines.append(
             f"{badge}<b>{html_escape(name)}</b>\n"
-            f"   \u2705 {user.correct} to'g'ri · \U0001f4c4 {user.finished} ta test · "
+            f"   \u2705 {user.correct} to'g'ri В· \U0001f4c4 {user.finished} ta test В· "
             f"\U0001f3af {acc}% aniqlik"
         )
     lines.append("")
@@ -301,7 +301,7 @@ def leaderboard_text(limit=10):
 
 
 def status_text():
-    """Platforma holati — savollar, foydalanuvchilar, sog'lomlik."""
+    """Platforma holati вЂ” savollar, foydalanuvchilar, sog'lomlik."""
     from django.contrib.auth import get_user_model
 
     from questions.models import Question
@@ -312,7 +312,7 @@ def status_text():
         status=Question.Status.PUBLISHED
     ).count()
     return (
-        "<b>\U0001f9fe Abiturend — holat</b>\n\n"
+        "<b>\U0001f9fe Abiturend вЂ” holat</b>\n\n"
         f"\U0001f4dd Savollar: <b>{Question.objects.count()}</b>\n"
         f"   \u2705 Chop etilgan: <b>{published}</b>\n"
         f"   \u23f3 Tekshiruvda: <b>{pending}</b>\n"
@@ -323,7 +323,7 @@ def status_text():
 
 
 def daily_trend_text():
-    """So'nggi 7 kun aktivligi — sessiyalar va to'g'ri javob ulushi."""
+    """So'nggi 7 kun aktivligi вЂ” sessiyalar va to'g'ri javob ulushi."""
     from datetime import timedelta
 
     from practice.models import PracticeAnswer, PracticeSession
@@ -352,44 +352,80 @@ def daily_trend_text():
             is_correct=True,
         ).count()
         acc = round((correct / answers) * 100) if answers else None
-        row = "🟩" if sessions else "⬜"
+        row = "рџџ©" if sessions else "в¬њ"
         rows.append(
-            f"{day:%a} {row} · {sessions} sessiya · "
-            f"{('%.0f%%' % acc) if acc is not None else '—'} to'g'ri"
+            f"{day:%a} {row} В· {sessions} sessiya В· "
+            f"{('%.0f%%' % acc) if acc is not None else 'вЂ”'} to'g'ri"
         )
     return (
-        "<b>📈 So'nggi 7 kun faolligi</b>\n"
+        "<b>рџ“€ So'nggi 7 kun faolligi</b>\n"
         f"{today:%d.%m.%Y} holatiga\n\n"
         + "\n".join(rows)
     )
 
+def weak_skills_text(chat_id=None):
+    """/weak вЂ” bog'langan hisobning eng zaif 3 mavzusi.
+
+    Bot hisoblar bilan bog'lanmagan (chat_id -> user bog'lanishi yo'q), shu
+    sababli bitta aniq hisob `TELEGRAM_LINKED_USER` orqali ko'rsatiladi. Bot
+    sozlanmagan yoki hisob topilmasa xato bermaydi вЂ” faqat tushuntirish
+    qaytaradi, webhook esa har doim 200 qaytaradi.
+    """
+    from django.conf import settings as django_settings
+    from django.contrib.auth import get_user_model
+
+    linked = (getattr(django_settings, "TELEGRAM_LINKED_USER", "") or "").strip()
+    if not linked:
+        return (
+            "<b>Zaif mavzular radar</b>\n"
+            "Bot hali hisobga bog'lanmagan. Administrator "
+            "TELEGRAM_LINKED_USER ni sozlamasida ko'rsatishi kerak."
+        )
+    User = get_user_model()
+    user = (
+        User.objects.filter(username=linked).first()
+        or (User.objects.filter(pk=linked).first() if linked.isdigit() else None)
+    )
+    if user is None:
+        return (
+            "<b>Zaif mavzular radar</b>\n"
+            "Bog'langan hisob topilmadi. Administrator sozlamani tekshirsin."
+        )
+
+    from practice.weak_skills import weak_skills_text as render
+
+    return render(user, limit=3)
+
+
 WELCOME_TEXT = (
-    "<b>🤖 Abiturend bot</b>\n\n"
+    "<b>рџ¤– Abiturend bot</b>\n\n"
     "Assalomu alaykum! Men Abiturend platformasi botiman.\n"
     "Quyidagi tugmalar yoki buyruqlar orqali boshqaring:\n\n"
-    "• /stats — kunlik statistika\n"
-    "• /top — TOP-10 abituriyentlar reytingi\n"
-    "• /status — platforma holati\n"
-    "• /trend — so'nggi 7 kun faolligi\n"
-    "• /help — barcha buyruqlar ro'yxati\n"
-    "• /id — chat ID ko'rsatish"
+    "вЂў /stats вЂ” kunlik statistika\n"
+    "вЂў /top вЂ” TOP-10 abituriyentlar reytingi\n"
+    "вЂў /status вЂ” platforma holati\n"
+    "вЂў /trend вЂ” so'nggi 7 kun faolligi\n"
+    "вЂў /weak вЂ” eng zaif mavzular\n"
+    "вЂў /help вЂ” barcha buyruqlar ro'yxati\n"
+    "вЂў /id вЂ” chat ID ko'rsatish"
 )
 
 
 HELP_TEXT = (
-    "<b>🤖 Abiturend bot — yordam</b>\n\n"
+    "<b>рџ¤– Abiturend bot вЂ” yordam</b>\n\n"
     "<b>Buyruqlar:</b>\n"
-    "• /start — asosiy menyu\n"
-    "• /stats — kunlik statistika (foydalanuvchilar, savollar, faollik)\n"
-    "• /top — TOP-10 bilimdonlar reytingi\n"
-    "• /status — platforma holati (savollar, foydalanuvchilar)\n"
-    "• /trend — so'nggi 7 kun faolligi\n"
-    "• /id — joriy chat ID\n"
-    "• /help — bu xabar\n\n"
+    "вЂў /start вЂ” asosiy menyu\n"
+    "вЂў /stats вЂ” kunlik statistika (foydalanuvchilar, savollar, faollik)\n"
+    "вЂў /top вЂ” TOP-10 bilimdonlar reytingi\n"
+    "вЂў /status вЂ” platforma holati (savollar, foydalanuvchilar)\n"
+    "вЂў /trend вЂ” so'nggi 7 kun faolligi\n"
+    "вЂў /weak вЂ” eng zaif 3 mavzu (aniqlik radar)\n"
+    "вЂў /id вЂ” joriy chat ID\n"
+    "вЂў /help вЂ” bu xabar\n\n"
     "<b>Avtomatik bildirishnomalar:</b>\n"
-    "• Yangi foydalanuvchi ro'yxatdan o'tsa\n"
-    "• O'qituvchi yangi savol qo'shsa\n"
-    "• Kunlik statistika (cron orqali)\n\n"
-    "Botga savol yuborilsa — admin sifatida qabul qilinadi va "
+    "вЂў Yangi foydalanuvchi ro'yxatdan o'tsa\n"
+    "вЂў O'qituvchi yangi savol qo'shsa\n"
+    "вЂў Kunlik statistika (cron orqali)\n\n"
+    "Botga savol yuborilsa вЂ” admin sifatida qabul qilinadi va "
     "tegishli bo'limga yo'naltiriladi."
 )
