@@ -68,6 +68,18 @@ API_ENDPOINTS = [
         "purpose": "Update the current user's password.",
     },
     {
+        "path": "/api/auth/password-reset/",
+        "method": "POST",
+        "auth": "public",
+        "purpose": "Start a password reset; emails a uid+token link (always 200).",
+    },
+    {
+        "path": "/api/auth/password-reset/confirm/",
+        "method": "POST",
+        "auth": "public",
+        "purpose": "Consume the emailed uid+token and set a new password.",
+    },
+    {
         "path": "/api/subjects/",
         "method": "GET",
         "auth": "public",
@@ -113,7 +125,7 @@ API_ENDPOINTS = [
         "path": "/api/sessions/",
         "method": "GET, POST",
         "auth": "session",
-        "purpose": "Create a practice/exam session from a random question pool, or list own sessions.",
+        "purpose": "Create a practice/exam session (omit subject for a unified exam across all subjects; pass question_ids for the mistakes notebook), or list own sessions.",
     },
     {
         "path": "/api/sessions/{id}/",
@@ -152,6 +164,18 @@ API_ENDPOINTS = [
         "purpose": "Read-only question-by-question review for a session.",
     },
     {
+        "path": "/api/certificates/",
+        "method": "GET, POST",
+        "auth": "session",
+        "purpose": "List own certificates; issue one for a finished unified exam (style=international|local).",
+    },
+    {
+        "path": "/api/certificates/{serial}/",
+        "method": "GET",
+        "auth": "public",
+        "purpose": "Verify a certificate by its printed serial (ABT-YYYY-XXXXXX).",
+    },
+    {
         "path": "/api/universities/",
         "method": "GET",
         "auth": "public",
@@ -170,10 +194,22 @@ API_ENDPOINTS = [
         "purpose": "Directions filterable by university slug or admission subject.",
     },
     {
+        "path": "/api/directions/{id}/",
+        "method": "GET",
+        "auth": "public",
+        "purpose": "A single direction with its entrance subjects.",
+    },
+    {
         "path": "/api/stats/summary/",
         "method": "GET",
         "auth": "session",
         "purpose": "Aggregated learner analytics: accuracy, streak, weekly activity, subject breakdown, weak topics, recent sessions.",
+    },
+    {
+        "path": "/api/stats/mistakes/",
+        "method": "GET",
+        "auth": "session",
+        "purpose": "Mistakes notebook (xatolar daftari): the student's wrongly answered questions with wrong counts and mastered flags.",
     },
     {
         "path": "/api/leaderboard/",
@@ -197,7 +233,31 @@ API_ENDPOINTS = [
         "path": "/api/premium/subscribe/",
         "method": "POST",
         "auth": "session",
-        "purpose": "Activate a plan (free tier now, payment placeholder for paid tiers).",
+        "purpose": "Activate the free tier instantly; paid tiers answer 402 with checkout_required (use /api/payments/checkout/).",
+    },
+    {
+        "path": "/api/payments/checkout/",
+        "method": "POST",
+        "auth": "session",
+        "purpose": "Start a Payme/Click checkout for a paid plan; returns a payment_url to redirect the user to.",
+    },
+    {
+        "path": "/api/payments/{id}/",
+        "method": "GET",
+        "auth": "session",
+        "purpose": "Poll a payment status while the user is on the gateway (pending/paid/cancelled).",
+    },
+    {
+        "path": "/webhooks/payme/",
+        "method": "POST",
+        "auth": "payme-basic",
+        "purpose": "Payme Merchant API webhook (CheckPerform/Create/Perform/Cancel/CheckTransaction).",
+    },
+    {
+        "path": "/webhooks/click/",
+        "method": "POST",
+        "auth": "click-md5-sign",
+        "purpose": "Click Shop API webhook: Prepare (action=0) and Complete (action=1).",
     },
     {
         "path": "/api/gamification/badges/",

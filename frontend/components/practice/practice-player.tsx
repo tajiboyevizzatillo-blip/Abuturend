@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -33,9 +33,13 @@ type LocalizedText = {
 };
 
 function localText(item: LocalizedText, locale: string): string {
-  if (locale === "ru") return item.text_ru ?? item.explanation_ru ?? "";
-  if (locale === "en") return item.text_en ?? item.explanation_en ?? "";
-  return item.text_uz ?? item.explanation_uz ?? "";
+  // `||`, not `??`: the API returns "" (not null) for missing translations,
+  // so `??` showed blank questions in ru/en.
+  if (locale === "ru")
+    return item.text_ru || item.text_uz || item.explanation_ru || "";
+  if (locale === "en")
+    return item.text_en || item.text_uz || item.explanation_en || "";
+  return item.text_uz || item.explanation_uz || "";
 }
 
 function shuffleOptions(options: SessionOption[]): SessionOption[] {
@@ -73,20 +77,33 @@ function Flame({ size = 15 }: { size?: number }) {
   );
 }
 
-export function PracticePlayer({ slug }: { slug: string }) {
+export function PracticePlayer({
+  slug,
+  questionIds,
+}: {
+  slug?: string;
+  questionIds?: number[];
+}) {
   const t = useTranslations("common");
   const exam = useTranslations("exam");
   const res = useTranslations("results");
   const gam = useTranslations("gamification");
+  const mis = useTranslations("mistakes");
   const locale = useLocale();
   const { user } = useAuth();
+  const router = useRouter();
+  // Mistakes notebook mode: drill an exact question list instead of sampling a subject.
+  const mistakesMode = (questionIds?.length ?? 0) > 0;
 
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [question, setQuestion] = useState<SessionQuestion | null>(null);
   const [shuffled, setShuffled] = useState<SessionOption[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [result, setResult] = useState<AnswerResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  // The session (and the daily free quota) is only created on an explicit
+  // Start click — merely opening the page must not burn a session.
+  const [started, setStarted] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fatal, setFatal] = useState(false);
   const [paywall, setPaywall] = useState(false);
@@ -97,16 +114,24 @@ export function PracticePlayer({ slug }: { slug: string }) {
   const [correctTotal, setCorrectTotal] = useState(0);
   const [streak, setStreak] = useState(0);
   const [time, setTime] = useState({ correct: 0, wrong: 0 });
+  // Latches so Enter+click cannot submit or advance twice (a second finish
+  // call would 409 on an already-finished session).
+  const answering = useRef(false);
+  const advancing = useRef(false);
 
-  const subjectLink = `/subjects/${slug}`;
+  const subjectLink = mistakesMode ? "/mistakes" : `/subjects/${slug}`;
+  // Where "start" sends guests and where the finish card sends the student.
+  const pageLink = mistakesMode ? "/mistakes" : `/subjects/${slug}/practice`;
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !started) return;
     let ignore = false;
-    fetchSubject(slug)
-      .then((subject) =>
-        startPractice({ subject: subject.id, question_count: 10, mode: "practice" })
-      )
+    const start$ = mistakesMode
+      ? startPractice({ mode: "practice", question_ids: questionIds })
+      : fetchSubject(slug ?? "").then((subject) =>
+          startPractice({ subject: subject.id, question_count: 10, mode: "practice" })
+        );
+    start$
       .then((sess) => {
         if (ignore) return;
         setSessionId(sess.id);
@@ -134,10 +159,11 @@ export function PracticePlayer({ slug }: { slug: string }) {
       ignore = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, slug]);
+  }, [user, slug, started]);
 
   const answer = () => {
-    if (!sessionId || !question || selected === null) return;
+    if (!sessionId || !question || selected === null || answering.current) return;
+    answering.current = true;
     submitAnswer(sessionId, question.id, selected)
       .then((r) => {
         setResult(r);
@@ -153,11 +179,15 @@ export function PracticePlayer({ slug }: { slug: string }) {
         // just press the button again.
         setError(t("error"));
         setRetry(answer);
+      })
+      .finally(() => {
+        answering.current = false;
       });
   };
 
   const next = () => {
-    if (!sessionId) return;
+    if (!sessionId || advancing.current) return;
+    advancing.current = true;
     setSelected(null);
     setResult(null);
     setQuestion(null);
@@ -182,7 +212,10 @@ export function PracticePlayer({ slug }: { slug: string }) {
         setError(t("error"));
         setRetry(next);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        advancing.current = false;
+        setLoading(false);
+      });
   };
 
   // Keyboard shortcuts: A-D/1-4 select, Enter submits / advances
@@ -263,6 +296,38 @@ export function PracticePlayer({ slug }: { slug: string }) {
               {t("back")}
             </Link>
           </div>
+        ) : !started ? (
+          /* Landing card — the session (and daily quota) is only created
+             when the student explicitly starts. */
+          <Card className="pop flex flex-col items-center gap-5 p-10 text-center">
+            <span className="badge badge-primary">DTM</span>
+            <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
+              {mistakesMode ? mis("startTitle") : exam("practiceTitle")}
+            </h2>
+            <p className="max-w-md font-serif italic text-muted">
+              {mistakesMode
+                ? mis("startNotice", { count: questionIds?.length ?? 0 })
+                : exam("startNotice")}
+            </p>
+            <Button
+              onClick={() => {
+                // Guests can preview this page (public prefix) but a session
+                // needs an account — send them to login instead of a spinner.
+                if (!user) {
+                  router.replace(`/login?next=${encodeURIComponent(pageLink)}`);
+                  return;
+                }
+                setLoading(true);
+                setStarted(true);
+              }}
+              className="btn-lg px-10"
+            >
+              {exam("start")}
+            </Button>
+            <Link href={subjectLink} className="text-sm font-semibold text-primary hover:underline">
+              {t("back")}
+            </Link>
+          </Card>
         ) : (
           <>
             {error && !fatal ? (
@@ -310,7 +375,15 @@ export function PracticePlayer({ slug }: { slug: string }) {
             ) : score !== null ? (
               /* Finish — score ring + summary (Quizzler-style) */
               <Card className="pop flex flex-col items-center gap-6 p-10 text-center">
-                <div className="relative h-36 w-36" style={{ "--p": score } as React.CSSProperties}>
+                <div
+                  className="relative h-36 w-36"
+                  style={{ "--p": score } as React.CSSProperties}
+                  role="progressbar"
+                  aria-valuenow={score}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={exam("resultsSummary")}
+                >
                   <div className="score-ring absolute inset-0" />
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
                     <span className="text-4xl font-bold tabular-nums">{score}%</span>
@@ -346,9 +419,11 @@ export function PracticePlayer({ slug }: { slug: string }) {
                   </div>
                 ) : null}
                 <div className="flex w-full max-w-sm flex-col gap-3 sm:flex-row">
-                  <Link href={`/subjects/${slug}/practice`} className="btn btn-secondary btn-lg flex-1">
-                    {t("again")}
-                  </Link>
+                  {mistakesMode ? null : (
+                    <Link href={`/subjects/${slug}/practice`} className="btn btn-secondary btn-lg flex-1">
+                      {t("again")}
+                    </Link>
+                  )}
                   <Link href={subjectLink} className="btn btn-primary btn-lg flex-1">
                     {t("back")}
                   </Link>

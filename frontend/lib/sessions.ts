@@ -24,15 +24,18 @@ export interface SessionQuestion {
 export interface PracticeSession {
   id: number;
   mode: SessionMode;
-  subject: number;
+  subject: number | null;
+  unified: boolean;
   topic: number | null;
   status: SessionStatus;
   question_count: number;
   progress_index: number;
-  correct_answers: number;
-  incorrect_answers: number;
+  correct_answers: number | null;
+  incorrect_answers: number | null;
   started_at: string;
   finished_at: string | null;
+  duration_minutes: number | null;
+  deadline_at: string | null;
   current_question?: SessionQuestion | null;
 }
 
@@ -62,7 +65,8 @@ export interface NewBadge {
 export interface FinishedReport {
   id: number;
   mode: SessionMode;
-  subject: number;
+  subject: number | null;
+  unified: boolean;
   status: SessionStatus;
   question_count: number;
   correct_answers: number;
@@ -102,10 +106,13 @@ export interface SessionReport extends FinishedReport {
 }
 
 export async function startPractice(input: {
-  subject: number;
+  subject?: number | null;
   topic?: number | null;
   question_count?: number;
   mode?: SessionMode;
+  duration_minutes?: number;
+  // Mistakes notebook: an exact question list (practice mode, no subject).
+  question_ids?: number[];
 }): Promise<PracticeSession> {
   return api<PracticeSession>("/sessions/", {
     method: "POST",
@@ -134,10 +141,6 @@ export async function finishSession(sessionId: number): Promise<SessionReport> {
   });
 }
 
-export async function fetchSessionReport(sessionId: number): Promise<SessionReport> {
-  return api<SessionReport>(`/sessions/${sessionId}/report/`);
-}
-
 export async function fetchSessionQuestions(
   sessionId: number
 ): Promise<SessionQuestion[]> {
@@ -150,7 +153,7 @@ export async function fetchSessionQuestions(
 export interface SessionListItem {
   id: number;
   mode: SessionMode;
-  subject: {
+  subject: null | {
     id: number;
     name_uz: string;
     name_ru: string;
@@ -160,15 +163,17 @@ export interface SessionListItem {
   topic: null | { id: number; name_uz: string; name_ru: string; name_en: string };
   status: SessionStatus;
   question_count: number;
-  correct_answers: number;
-  incorrect_answers: number;
+  // Hidden (null) while an exam is in progress so a running score cannot be
+  // used as an answer oracle.
+  correct_answers: number | null;
+  incorrect_answers: number | null;
   unanswered: number;
-  score_percent: number;
+  score_percent: number | null;
   started_at: string;
   finished_at: string | null;
 }
 
 export async function fetchSessionList(): Promise<SessionListItem[]> {
-  const data = await api<{ results: SessionListItem[] }>("/sessions/");
+  const data = await api<{ results: SessionListItem[] }>("/sessions/?page_size=100");
   return data.results;
 }

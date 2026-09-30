@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { useRouter } from "next/navigation";
 import { ProtectedShell } from "@/components/layout/protected-shell";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import {
   type SubscriptionPlan,
   type SubscriptionState,
 } from "@/lib/premium";
+import { startCheckout, type PaymentProvider } from "@/lib/payments";
 import { cn } from "@/lib/utils";
 
 function planFeatureKeys(t: ReturnType<typeof useTranslations>, tier: string) {
@@ -31,6 +33,7 @@ function formatPrice(price: number): string {
 export default function PremiumPage() {
   const t = useTranslations("premium");
   const locale = useLocale();
+  const router = useRouter();
   const { user } = useAuth();
 
   const [plans, setPlans] = useState<SubscriptionPlan[] | null>(null);
@@ -50,11 +53,26 @@ export default function PremiumPage() {
     }
   }, [t, user]);
 
-  const onSubscribe = async (plan: SubscriptionPlan) => {
+  const onSubscribe = async (
+    plan: SubscriptionPlan,
+    provider?: PaymentProvider
+  ) => {
     setPendingCode(plan.code);
     setNotice(null);
     setError(null);
     try {
+      if (plan.price_uzs > 0) {
+        const payment = await startCheckout(
+          plan.code,
+          provider ?? "payme",
+          `/${locale}/premium/payment/{id}/`
+        );
+        if (payment.payment_url) {
+          window.open(payment.payment_url, "_blank", "noopener");
+        }
+        router.push(`/${locale}/premium/payment/${payment.id}`);
+        return;
+      }
       const next = await subscribe(plan.code);
       setSub(next);
       setNotice(t("subscribed"));
@@ -209,23 +227,63 @@ export default function PremiumPage() {
                       </li>
                     </ul>
 
-                    <div className="mt-auto pt-2">
-                      <Button
-                        className="w-full"
-                        variant={isProPlan ? "primary" : "secondary"}
-                        disabled={
-                          !user || isActivePlan || pendingCode !== null
-                        }
-                        onClick={() => onSubscribe(plan)}
-                      >
-                        {!user
-                          ? t("needLogin")
-                          : isActivePlan
-                            ? t("active")
-                            : pendingCode === plan.code
-                              ? t("subscribing")
-                              : t("subscribe")}
-                      </Button>
+                    <div className="mt-auto space-y-2 pt-2">
+                      {isProPlan ? (
+                        <>
+                          <p className="text-center text-xs text-muted">
+                            {t("chooseProvider")}
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button
+                              variant="primary"
+                              disabled={
+                                !user || isActivePlan || pendingCode !== null
+                              }
+                              onClick={() => onSubscribe(plan, "payme")}
+                            >
+                              {!user
+                                ? t("needLogin")
+                                : isActivePlan
+                                  ? t("active")
+                                  : pendingCode === plan.code
+                                    ? t("subscribing")
+                                    : "Payme"}
+                            </Button>
+                            <Button
+                              variant="primary"
+                              disabled={
+                                !user || isActivePlan || pendingCode !== null
+                              }
+                              onClick={() => onSubscribe(plan, "click")}
+                            >
+                              {!user
+                                ? t("needLogin")
+                                : isActivePlan
+                                  ? t("active")
+                                  : pendingCode === plan.code
+                                    ? t("subscribing")
+                                    : "Click"}
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <Button
+                          className="w-full"
+                          variant="secondary"
+                          disabled={
+                            !user || isActivePlan || pendingCode !== null
+                          }
+                          onClick={() => onSubscribe(plan)}
+                        >
+                          {!user
+                            ? t("needLogin")
+                            : isActivePlan
+                              ? t("active")
+                              : pendingCode === plan.code
+                                ? t("subscribing")
+                                : t("subscribe")}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );

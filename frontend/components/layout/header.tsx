@@ -32,6 +32,9 @@ export function Header() {
           <Link href="/mock-exams" className="transition-colors hover:text-foreground">
             {t("mockExams")}
           </Link>
+          <Link href="/mistakes" className="transition-colors hover:text-foreground">
+            {t("mistakes")}
+          </Link>
           <Link href="/universities" className="transition-colors hover:text-foreground">
             {t("universities")}
           </Link>
@@ -40,6 +43,12 @@ export function Header() {
             className="transition-colors hover:text-foreground"
           >
             {t("premium")}
+          </Link>
+          <Link
+            href="/achievements"
+            className="transition-colors hover:text-foreground"
+          >
+            {t("achievements")}
           </Link>
         </nav>
 

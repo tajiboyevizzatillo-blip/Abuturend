@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
 import { startPractice, fetchSessionQuestions, submitAnswer, finishSession, type SessionQuestion, type SessionReport, type SessionOption } from "@/lib/sessions";
+import { createCertificate, type CertificateStyle } from "@/lib/certificates";
 import { ApiError, extractFieldError } from "@/lib/api";
 import { localizedName, type Subject } from "@/lib/catalog";
 import { Paywall } from "@/components/premium/paywall";
@@ -44,7 +46,7 @@ function ClockIcon({ size = 14 }: { size?: number }) {
 
 interface ExamSetupProps {
   subjects: Subject[];
-  onStart: (subject: Subject, questionCount: number, minutes: number) => void;
+  onStart: (subject: Subject | null, questionCount: number, minutes: number) => void;
   onHistory: () => void;
 }
 
@@ -53,9 +55,13 @@ export function ExamSetup({ subjects, onStart, onHistory }: ExamSetupProps) {
   const common = useTranslations("common");
   const locale = useLocale();
 
+  // null subject = the unified exam (umumiy imtihon) across every subject.
   const [subject, setSubject] = useState<Subject | null>(null);
+  const [unified, setUnified] = useState(false);
   const [count, setCount] = useState(10);
   const [minutes, setMinutes] = useState(10);
+
+  const ready = unified || subject !== null;
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
@@ -65,22 +71,50 @@ export function ExamSetup({ subjects, onStart, onHistory }: ExamSetupProps) {
         <p className="font-serif italic text-subtle">{t("chooseSubject")}</p>
       </div>
 
+      <button
+        type="button"
+        onClick={() => {
+          setUnified(true);
+          setSubject(null);
+        }}
+        className={cn(
+          "card card-hover flex items-center gap-3 p-4 text-left",
+          unified && "border-primary/50 bg-primary-soft"
+        )}
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal text-sm font-bold text-white">
+          🎓
+        </span>
+        <span className="flex flex-col">
+          <span className="font-semibold">{t("unifiedTitle")}</span>
+          <span className="text-xs text-subtle">{t("unifiedDesc")}</span>
+        </span>
+        {unified ? (
+          <span className="ml-auto text-primary">
+            <CheckIcon />
+          </span>
+        ) : null}
+      </button>
+
       <div className="grid gap-3 sm:grid-cols-2">
         {subjects.map((s) => (
           <button
             key={s.id}
             type="button"
-            onClick={() => setSubject(s)}
+            onClick={() => {
+              setUnified(false);
+              setSubject(s);
+            }}
             className={cn(
               "card card-hover flex items-center gap-3 p-4 text-left",
-              subject?.id === s.id && "border-primary/50 bg-primary-soft"
+              !unified && subject?.id === s.id && "border-primary/50 bg-primary-soft"
             )}
           >
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-navy text-sm font-bold text-primary-foreground">
               {(s.code || localizedName(s, locale).charAt(0)).toUpperCase()}
             </span>
             <span className="font-semibold">{localizedName(s, locale)}</span>
-            {subject?.id === s.id ? (
+            {!unified && subject?.id === s.id ? (
               <span className="ml-auto text-primary">
                 <CheckIcon />
               </span>
@@ -132,9 +166,9 @@ export function ExamSetup({ subjects, onStart, onHistory }: ExamSetupProps) {
 
         <button
           type="button"
-          disabled={!subject}
+          disabled={!ready}
           className="btn btn-primary btn-lg w-full"
-          onClick={() => subject && onStart(subject, count, minutes)}
+          onClick={() => ready && onStart(unified ? null : subject, count, minutes)}
         >
           {t("startExam")}
         </button>
@@ -228,7 +262,8 @@ export function ExamPlayer({
   minutes,
   onExit,
 }: {
-  subject: Subject;
+  // null = unified exam (umumiy imtihon) across all subjects.
+  subject: Subject | null;
   questionCount: number;
   minutes: number;
   onExit: () => void;
@@ -237,9 +272,14 @@ export function ExamPlayer({
   const common = useTranslations("common");
   const gam = useTranslations("gamification");
   const locale = useLocale();
+  const router = useRouter();
 
-  const [deadline] = useState(() => Date.now() + minutes * 60 * 1000);
+  // The server owns the deadline (deadline_at); the client countdown is only
+  // a display. Initialize locally so the clock ticks before the session
+  // payload arrives, then re-sync to the server value.
+  const [deadline, setDeadline] = useState(() => Date.now() + minutes * 60 * 1000);
   const [remaining, setRemaining] = useState(minutes * 60);
+  const [timeExpired, setTimeExpired] = useState(false);
 
   const [questions, setQuestions] = useState<SessionQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<number, number>>({});
@@ -253,10 +293,25 @@ export function ExamPlayer({
   const [loadFailed, setLoadFailed] = useState(false);
   const [paywall, setPaywall] = useState(false);
   const [finishFailed, setFinishFailed] = useState(false);
+  const [certStyle, setCertStyle] = useState<CertificateStyle | null>(null);
+  const [certError, setCertError] = useState<string | null>(null);
 
   const sessionId = useRef<number | null>(null);
   const finishing = useRef(false);
   const autoFinished = useRef(false);
+
+  const issueCertificate = async (style: CertificateStyle) => {
+    if (!report || certStyle) return;
+    setCertStyle(style);
+    setCertError(null);
+    try {
+      const cert = await createCertificate(report.id, style);
+      router.push(`/verify/${cert.serial}`);
+    } catch (e) {
+      setCertStyle(null);
+      setCertError(errorMessage(e, common("error")));
+    }
+  };
 
   const finish = useCallback(async () => {
     if (finished || !sessionId.current || finishing.current) return;
@@ -284,11 +339,16 @@ export function ExamPlayer({
     (async () => {
       try {
         const session = await startPractice({
-          subject: subject.id,
+          subject: subject?.id ?? null,
           question_count: questionCount,
           mode: "exam",
+          duration_minutes: minutes,
         });
         sessionId.current = session.id;
+        if (session.deadline_at && !ignore) {
+          const serverDeadline = Date.parse(session.deadline_at);
+          if (!Number.isNaN(serverDeadline)) setDeadline(serverDeadline);
+        }
         const qs = await fetchSessionQuestions(session.id);
         if (!ignore) {
           setQuestions(qs);
@@ -310,7 +370,7 @@ export function ExamPlayer({
     return () => {
       ignore = true;
     };
-  }, [subject.id, questionCount, common]);
+  }, [subject?.id, questionCount, minutes, common]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -343,6 +403,13 @@ export function ExamPlayer({
         setSubmitting(false);
       }
     } catch (e) {
+      // Server-side deadline hit: finish rather than showing a dead-end error.
+      if (e instanceof ApiError && e.status === 409 && (e.detail as { time_expired?: boolean } | null)?.time_expired) {
+        setTimeExpired(true);
+        setSubmitting(false);
+        finish();
+        return;
+      }
       // Keep the question on screen: a failed submit is recoverable.
       setError(errorMessage(e, common("error")));
       setSubmitting(false);
@@ -379,8 +446,19 @@ export function ExamPlayer({
       <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6">
         <div className="card relative flex flex-col items-center gap-4 overflow-hidden p-8 text-center">
           <div aria-hidden className="pointer-events-none absolute -right-14 -top-14 h-40 w-40 rounded-full bg-teal/20 blur-3xl" />
-          <span className="badge badge-success">✓ {t("autoFinishNotice")}</span>
-          <div className="score-ring score-ring-lg">
+          {timeExpired || remaining === 0 ? (
+            <span className="badge badge-success">✓ {t("autoFinishNotice")}</span>
+          ) : (
+            <span className="badge badge-success">✓ {t("resultsSummary")}</span>
+          )}
+          <div
+            className="score-ring score-ring-lg"
+            role="progressbar"
+            aria-valuenow={report?.score_percent ?? 0}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={t("resultsSummary")}
+          >
             <span className="text-2xl font-bold tabular-nums">{report?.score_percent ?? 0}%</span>
           </div>
           <p className="text-lg font-semibold">{t("resultsSummary")}</p>
@@ -401,6 +479,32 @@ export function ExamPlayer({
                       : b.name_uz}
                 </span>
               ))}
+            </div>
+          ) : null}
+          {report?.unified ? (
+            <div className="flex w-full flex-col gap-2 rounded-xl border border-border bg-surface-subtle/60 p-4">
+              <span className="text-sm font-semibold text-subtle">{t("certTitle")}</span>
+              <div className="flex flex-wrap justify-center gap-3">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={certStyle !== null}
+                  onClick={() => issueCertificate("international")}
+                >
+                  {certStyle === "international" ? common("loading") : t("certInternational")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={certStyle !== null}
+                  onClick={() => issueCertificate("local")}
+                >
+                  {certStyle === "local" ? common("loading") : t("certLocal")}
+                </button>
+              </div>
+              {certError ? (
+                <p role="alert" className="text-sm text-danger">{certError}</p>
+              ) : null}
             </div>
           ) : null}
           <div className="flex gap-3">

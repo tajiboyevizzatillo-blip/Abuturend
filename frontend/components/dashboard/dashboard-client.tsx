@@ -411,12 +411,16 @@ export function DashboardClient() {
                           <tr key={s.id}>
                             <td>
                               <div className="flex flex-col gap-1">
-                                <Link
-                                  href={`/subjects/${s.subject.slug}/practice`}
-                                  className="font-semibold hover:text-primary hover:underline"
-                                >
-                                  {localSubjectOnly(s.subject, locale)}
-                                </Link>
+                                {s.subject ? (
+                                  <Link
+                                    href={`/subjects/${s.subject.slug}/practice`}
+                                    className="font-semibold hover:text-primary hover:underline"
+                                  >
+                                    {localSubjectOnly(s.subject, locale)}
+                                  </Link>
+                                ) : (
+                                  <span className="font-semibold">{exam("unifiedTitle")}</span>
+                                )}
                                 <span className="badge badge-neutral">
                                   {s.mode === "exam" ? exam("title") : exam("practiceTitle")}
                                 </span>
@@ -471,9 +475,10 @@ function localSubjectName(
 }
 
 function localSubjectOnly(
-  o: { name_uz?: string; name_ru?: string; name_en?: string },
+  o: { name_uz?: string; name_ru?: string; name_en?: string } | null,
   locale: string
 ): string {
+  if (!o) return "";
   if (locale === "ru") return o.name_ru || o.name_uz || "";
   if (locale === "en") return o.name_en || o.name_uz || "";
   return o.name_uz || "";

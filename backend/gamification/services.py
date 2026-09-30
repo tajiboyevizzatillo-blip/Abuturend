@@ -52,17 +52,27 @@ def user_stats(user):
 
 
 def _perfect_sessions(queryset):
-    """Sessions where every question was answered and all answers are correct."""
-    count = 0
-    for session in queryset:
-        answered = session.answers.filter(selected_option__isnull=False)
-        if (
-            answered.exists()
-            and answered.count() == session.question_count
-            and not answered.filter(is_correct=False).exists()
-        ):
-            count += 1
-    return count
+    """Sessions where every question was answered and all answers are correct.
+
+    Done as one aggregate query instead of three queries per session (this
+    runs on every badges page load and every finished session).
+    """
+    from django.db.models import Count, F, Q
+
+    return (
+        queryset.annotate(
+            n_answered=Count(
+                "answers", filter=Q(answers__selected_option__isnull=False)
+            ),
+            n_wrong=Count(
+                "answers",
+                filter=Q(answers__selected_option__isnull=False)
+                & Q(answers__is_correct=False),
+            ),
+        )
+        .filter(n_answered__gt=0, n_answered=F("question_count"), n_wrong=0)
+        .count()
+    )
 
 
 def level_info(xp):

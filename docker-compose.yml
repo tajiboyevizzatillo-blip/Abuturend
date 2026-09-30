@@ -39,6 +39,24 @@ services:
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       TELEGRAM_WEBHOOK_HOST: ${TELEGRAM_WEBHOOK_HOST:-}
+      # To'lovlar (Payme / Click) — webhook'lari faqat backend'da ishlaydi.
+      # Ikkalasi ham bo'sh qoldirilsa webhook fail-closed rad etiladi.
+      PAYME_LOGIN: ${PAYME_LOGIN:-Paycom}
+      PAYME_KEY: ${PAYME_KEY:-}
+      PAYME_MERCHANT_ID: ${PAYME_MERCHANT_ID:-}
+      PAYME_CHECKOUT_URL: ${PAYME_CHECKOUT_URL:-https://checkout.paycom.uz}
+      CLICK_SERVICE_ID: ${CLICK_SERVICE_ID:-}
+      CLICK_MERCHANT_ID: ${CLICK_MERCHANT_ID:-}
+      CLICK_SECRET_KEY: ${CLICK_SECRET_KEY:-}
+      CLICK_PAY_URL: ${CLICK_PAY_URL:-https://my.click.uz/services/pay}
+      # Email (parol tiklash xatlari) — console backend lokal uchun, prod'da SMTP
+      DJANGO_EMAIL_BACKEND: ${DJANGO_EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+      DJANGO_EMAIL_HOST: ${DJANGO_EMAIL_HOST:-}
+      DJANGO_EMAIL_PORT: ${DJANGO_EMAIL_PORT:-587}
+      DJANGO_EMAIL_HOST_USER: ${DJANGO_EMAIL_HOST_USER:-}
+      DJANGO_EMAIL_HOST_PASSWORD: ${DJANGO_EMAIL_HOST_PASSWORD:-}
+      DJANGO_DEFAULT_FROM_EMAIL: ${DJANGO_DEFAULT_FROM_EMAIL:-noreply@abituriyent.orgtrace.uz}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-https://abituriyent.orgtrace.uz}
     volumes:
       - media:/app/media
       - static:/app/staticfiles

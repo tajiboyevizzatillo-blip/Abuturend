@@ -17,7 +17,11 @@ export default function LoginPage() {
   const { setUser } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/dashboard";
+  // Only same-site paths: an attacker-supplied next=https://evil.com must not
+  // turn the login button into an open redirect.
+  const rawNext = searchParams.get("next") || "";
+  const next =
+    rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
 
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState<string | null>(null);

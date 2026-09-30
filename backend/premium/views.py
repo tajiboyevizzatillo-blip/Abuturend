@@ -1,18 +1,19 @@
-from datetime import timedelta
-
-from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Subscription, SubscriptionPlan
+from .models import SubscriptionPlan
 from .serializers import (
     ActivePlanSerializer,
     SubscribeSerializer,
     SubscriptionPlanSerializer,
 )
-from .services import active_subscription, remaining_sessions_today
+from .services import (
+    activate_plan,
+    active_subscription,
+    remaining_sessions_today,
+)
 
 
 class PlanListView(APIView):
@@ -45,26 +46,18 @@ class SubscribeView(APIView):
         serializer.is_valid(raise_exception=True)
         plan = serializer.validated_data["plan_code"]
 
-        active = active_subscription(request.user)
-        now = timezone.now()
-        if active is not None and active.ends_at and active.ends_at > now:
-            starts_at = active.ends_at
-        else:
-            starts_at = now
-        ends_at = starts_at + timedelta(days=plan.duration_days)
-
-        # Real payment gateways would run here; for now activation is immediate
-        # and idempotent: only the free tier can be taken without a gateway.
+        # The free tier activates instantly. Paid tiers must go through a real
+        # gateway: POST /api/payments/checkout/ returns a Payme/Click payment
+        # URL and the webhook activates the subscription once money arrives.
         if plan.tier == SubscriptionPlan.Tier.FREE or plan.price_uzs == 0:
-            Subscription.objects.create(
-                user=request.user, plan=plan, starts_at=starts_at, ends_at=ends_at
-            )
+            activate_plan(request.user, plan)
         else:
             return Response(
                 {
-                    "detail": "To'lov tizimi hozircha faqat bepul tarif uchun ochiq.",
+                    "detail": "Pullik tarif uchun to'lov kerak.",
                     "plan_code": plan.code,
                     "price_uzs": plan.price_uzs,
+                    "checkout_required": True,
                 },
                 status=status.HTTP_402_PAYMENT_REQUIRED,
             )

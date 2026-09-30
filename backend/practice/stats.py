@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.db.models import Count, Sum
+from django.db.models import Count, Max, Q, Sum
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -9,9 +9,12 @@ from rest_framework.views import APIView
 from catalog.models import Subject, Topic
 
 from gamification.services import level_info
+from questions.models import Question
 
 from .models import PracticeAnswer, PracticeSession
 from .serializers import SessionListSerializer
+
+PUBLISHED_ACTIVE = Q(is_active=True) & Q(status=Question.Status.PUBLISHED)
 
 
 class StatsSummaryView(APIView):
@@ -19,30 +22,25 @@ class StatsSummaryView(APIView):
 
     def get(self, request):
         user = request.user
-        finished = PracticeSession.objects.filter(
+        finished_qs = PracticeSession.objects.filter(
             user=user, status=PracticeSession.Status.FINISHED
         ).select_related("subject", "topic")
+        finished = list(finished_qs)
 
-        finished_ids = list(finished.values_list("id", flat=True))
-
-        total_questions = sum(
-            finished.values_list("question_count", flat=True)
-        )
-        answered = sum(
-            (s.correct_answers + s.incorrect_answers) for s in finished
-        )
+        total_questions = sum(s.question_count for s in finished)
+        answered = sum((s.correct_answers + s.incorrect_answers) for s in finished)
         correct = sum(s.correct_answers for s in finished)
 
         accuracy = round(correct / answered * 100) if answered else 0
         current_score = (
-            round(sum(s.correct_answers for s in finished) / total_questions * 100)
-            if total_questions
-            else 0
+            round(correct / total_questions * 100) if total_questions else 0
         )
 
-        # Subject breakdown
+        # Subject breakdown — unified exams (subject=None) belong to the
+        # totals above, not to a single subject bucket.
         by_subject = (
-            finished.values("subject")
+            finished_qs.filter(subject__isnull=False)
+            .values("subject")
             .annotate(
                 sessions=Count("id"),
                 questions=Sum("question_count"),
@@ -142,13 +140,11 @@ class StatsSummaryView(APIView):
             if row["question__topic"] in topic_names
         ]
 
-        recent = PracticeSession.objects.filter(
-            id__in=finished_ids
-        ).select_related("subject", "topic").order_by("-started_at")[:5]
+        recent = sorted(finished, key=lambda s: s.started_at, reverse=True)[:5]
         recent_sessions = SessionListSerializer(recent, many=True).data
 
         payload = {
-            "total_finished": finished.count(),
+            "total_finished": len(finished),
             "total_questions": total_questions,
             "total_answered": answered,
             "accuracy": accuracy,
@@ -161,3 +157,71 @@ class StatsSummaryView(APIView):
             "recent_sessions": recent_sessions,
         }
         return Response(payload)
+
+
+class MistakesView(APIView):
+    """Xatolar daftari — every question the student has answered wrongly.
+
+    Sorted by wrong-answer count so the weakest material floats up. ``is_mastered``
+    flips to true once the student's latest answer to that question is correct
+    (in any later session), so the notebook shrinks as they improve.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _mistake_filter(user):
+        return PracticeAnswer.objects.filter(
+            session__user=user,
+            is_correct=False,
+            question__is_active=True,
+            question__status=Question.Status.PUBLISHED,
+        )
+
+    def get(self, request):
+        user = request.user
+        rows = (
+            self._mistake_filter(user)
+            .values("question")
+            .annotate(wrong=Count("id"), last_wrong=Max("answered_at"))
+            .order_by("-wrong", "-last_wrong")[:50]
+        )
+        question_ids = [r["question"] for r in rows]
+
+        # Latest answer per question across sessions (higher id = later row;
+        # a re-answer updates its row in place). A later correct answer means
+        # the student has since mastered that question.
+        latest = {}
+        for ans in PracticeAnswer.objects.filter(
+            session__user=user, question_id__in=question_ids
+        ).order_by("id"):
+            latest[ans.question_id] = ans.is_correct
+
+        questions = Question.objects.filter(id__in=question_ids).select_related(
+            "subject"
+        )
+        by_id = {q.id: q for q in questions}
+
+        items = []
+        for row in rows:
+            q = by_id.get(row["question"])
+            if q is None:
+                continue
+            subject = q.subject
+            items.append(
+                {
+                    "question_id": q.id,
+                    "text_uz": q.text_uz,
+                    "text_ru": q.text_ru,
+                    "text_en": q.text_en,
+                    "subject_id": subject.id if subject else None,
+                    "subject_name_uz": subject.name_uz if subject else None,
+                    "subject_name_ru": subject.name_ru if subject else None,
+                    "subject_name_en": subject.name_en if subject else None,
+                    "wrong": row["wrong"],
+                    "last_wrong_at": row["last_wrong"],
+                    "is_mastered": bool(latest.get(q.id, False)),
+                }
+            )
+        total = self._mistake_filter(user).values("question").distinct().count()
+        return Response({"total": total, "count": len(items), "items": items})

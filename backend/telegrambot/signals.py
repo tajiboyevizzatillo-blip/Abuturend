@@ -25,6 +25,11 @@ def _safe(target, *args):
         target(*args)
     except Exception:
         logger.exception("Telegram bildirishnomasi yuborilmadi")
+    finally:
+        # The thread opened its own DB connection; Django never closes those.
+        from django.db import close_old_connections
+
+        close_old_connections()
 
 
 @receiver(post_save, sender=User)

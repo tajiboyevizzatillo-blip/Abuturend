@@ -33,7 +33,7 @@ export interface RecentSession {
   id: number;
   mode: "practice" | "exam";
   status: "in_progress" | "finished";
-  subject: { id: number; name_uz: string; name_ru: string; name_en: string; slug: string };
+  subject: null | { id: number; name_uz: string; name_ru: string; name_en: string; slug: string };
   question_count: number;
   progress_index: number;
   correct_answers: number;

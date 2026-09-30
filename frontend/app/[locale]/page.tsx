@@ -97,7 +97,7 @@ export default async function LandingPage({
     about: {
       "@type": "Organization",
       name: "Abiturend",
-      description: "DTM / BMB imtihonlariga tayyorgarlik platformasi",
+      description: t("heroSubtitle"),
     },
   };
 

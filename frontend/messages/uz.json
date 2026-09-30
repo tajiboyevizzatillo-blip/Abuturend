@@ -10,6 +10,7 @@
     "dashboard": "Boshqaruv paneli",
     "subjects": "Fanlar",
     "mockExams": "Sinov imtihonlari",
+    "mistakes": "Xatolar",
     "universities": "Universitetlar",
     "premium": "Premium",
     "achievements": "Yutuqlar",
@@ -47,7 +48,9 @@
     "pressEnter": "Enter — yuborish",
     "reset": "Tozalash",
     "minUnit": "daqiqa",
-    "inProgress": "Jarayonda"
+    "inProgress": "Jarayonda",
+    "notFoundTitle": "Sahifa topilmadi",
+    "notFoundDesc": "Siz qidirgan sahifa o'chirilgan yoki manzili o'zgargan bo'lishi mumkin."
   },
   "landing": {
     "badge": "DTM / BMB imtihonlariga tayyorgarlik",
@@ -171,7 +174,14 @@
     "passwordHint": "Kamida 8 belgi",
     "profileSaved": "Profil muvaffaqiyatli saqlandi",
     "passwordChanged": "Parol muvaffaqiyatli o'zgartirildi",
-    "passwordMismatch": "Yangi parollar mos kelmaydi"
+    "passwordMismatch": "Yangi parollar mos kelmaydi",
+    "personalInfo": "Shaxsiy ma'lumotlar",
+    "changePasswordTitle": "Parolni o'zgartirish",
+    "forgotSent": "Agar bu email tizimga ro'yxatdan o'tgan bo'lsa, parol tiklash havolasi yuborildi. Papkangizni tekshiring.",
+    "resetTitle": "Yangi parol o'rnating",
+    "resetBtn": "Saqlash va kirish",
+    "resetSuccess": "Parol o'zgartirildi. Endi kirish sahifasiga yo'naltirilmoqdasiz.",
+    "resetInvalid": "Havolada xato yoki muddati tugagan. Qaytadan so'rang."
   },
   "dashboard": {
     "title": "Boshqaruv paneli",
@@ -243,7 +253,7 @@
     "subscribed": "Tarif aktivlandi!",
     "freeBadge": "BEPUL",
     "proBadge": "PRO",
-    "paywall": "To'lov tizimi hozircha faqat bepul tarif uchun ochiq.",
+    "paywall": "To'lovni boshlab bo'lmadi. Qayta urinib ko'ring.",
     "freePlanName": "Bepul (sinov)",
     "featuresFree1": "Kuniga 3 ta sessiya",
     "featuresPro1": "Cheksiz test sessiya",
@@ -258,7 +268,19 @@
     "needLogin": "Obuna bo'lish uchun tizimga kiring.",
     "paywallTitle": "Kunlik bepul sessiya limiti tugadi",
     "paywallDesc": "Bepul tarif kuniga 3 ta sessiya beradi. Cheksiz mashq qilish uchun PRO tarifga o'ting.",
-    "paywallCta": "Tariflarni ko'rish"
+    "paywallCta": "Tariflarni ko'rish",
+    "chooseProvider": "To'lov usulini tanlang",
+    "payTitle": "To'lov",
+    "payPending": "To'lov kutilmoqda...",
+    "payPendingHint": "To'lov sahifasini yakunlagach, holat avtomatik yangilanadi.",
+    "payOpen": "To'lov sahifasini ochish",
+    "payCheck": "Holatni tekshirish",
+    "payChecking": "Tekshirilmoqda...",
+    "payPaid": "To'lov muvaffaqiyatli! Tarif faollashtirildi.",
+    "payCancelled": "To'lov bekor qilindi.",
+    "payFailed": "To'lovda xatolik yuz berdi.",
+    "payBack": "Premium sahifasiga qaytish",
+    "payNotFound": "To'lov topilmadi."
   },
   "gamification": {
     "title": "Yutuqlar",
@@ -336,7 +358,13 @@
     "autoFinishNotice": "Vaqt tugadi — imtihon avtomatik yakunlandi.",
     "history": "Natijalar tarixi",
     "yourAnswer": "Sizning javobingiz",
-    "review": "Tahlil"
+    "review": "Tahlil",
+    "startNotice": "10 ta savol. Javob berish boshlanishi bilan kunlik limitdan bitta sessiya sarflanadi.",
+    "unifiedTitle": "Umumiy imtihon",
+    "unifiedDesc": "Barcha fanlardan savollar · umumiy ball va sertifikat",
+    "certTitle": "Sertifikat olish",
+    "certInternational": "Xalqaro",
+    "certLocal": "Mahalliy"
   },
   "results": {
     "title": "Natija",
@@ -376,5 +404,48 @@
     "services": "Xizmatlar",
     "rights": "Barcha huquqlar himoyalangan.",
     "location": "O'zbekiston · Oliy ta'lim tayyorgarlik platformasi"
+  },
+  "cert": {
+    "title": "Sertifikatlar",
+    "subtitle": "Umumiy imtihon natijalari bo'yicha berilgan sertifikatlaringiz",
+    "empty": "Hozircha sertifikatlaringiz yo'q",
+    "emptyHint": "Umumiy imtihonni yakunlang va natijangiz uchun sertifikat oling",
+    "goExam": "Imtihon topshirish",
+    "verifyOk": "Sertifikat haqiqiy",
+    "notFound": "Sertifikat topilmadi",
+    "notFoundHint": "Seriya raqamini tekshirib qayta urinib ko'ring",
+    "serial": "Seriya raqami",
+    "fullName": "F.I.Sh.",
+    "score": "Ball",
+    "grade": "Toifa",
+    "result": "Natija",
+    "issued": "Berilgan sana",
+    "print": "Chop etish",
+    "back": "Orqaga",
+    "myCerts": "Sertifikatlarim",
+    "international": "Xalqaro sertifikat",
+    "local": "Mahalliy sertifikat",
+    "passed": "Muvaffaqiyatli o'tdi",
+    "notPassed": "O'tmadi",
+    "loadError": "Yuklashda xatolik",
+    "verifyUrlHint": "Tekshirish havolasi"
+  },
+  "mistakes": {
+    "title": "Xatolar daftari",
+    "subtitle": "Noto'g'ri javob berilgan savollar — shu yerda qayta mashq qiling",
+    "count": "{count} ta xato",
+    "loadError": "Xatolarni yuklab bo'lmadi",
+    "empty": "Xatolar yo'q",
+    "emptyHint": "Hozircha noto'g'ri javoblar yo'q. Testlarni davom ettiring!",
+    "goExam": "Imtihondan o'tish",
+    "activeGroup": "Qayta mashq qilinadiganlar",
+    "masteredGroup": "O'zlashtirilganlar",
+    "mastered": "O'zlashtirilgan",
+    "allSubjects": "Barcha fanlar",
+    "wrongCount": "{count} marta xato",
+    "limitNote": "Bir mashqda 30 tagacha savol",
+    "start": "Mashq qilish ({count})",
+    "startTitle": "Xatolar bo'yicha mashq",
+    "startNotice": "{count} ta xato savol bo'yicha mashq boshlanadi"
   }
 }

@@ -10,6 +10,7 @@ urlpatterns = [
     path("", include("questions.urls")),
     path("", include("practice.urls")),
     path("premium/", include("premium.urls")),
+    path("payments/", include("payments.urls")),
     path("gamification/", include("gamification.urls")),
     path("", include("universities.urls")),
     path("", api_root, name="api-root"),

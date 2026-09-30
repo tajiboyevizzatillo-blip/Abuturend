@@ -48,7 +48,7 @@ export interface University {
 }
 
 export async function fetchUniversities(): Promise<University[]> {
-  const data = await api<{ results: University[] }>("/universities/");
+  const data = await api<{ results: University[] }>("/universities/?page_size=100");
   return data.results;
 }
 
@@ -63,6 +63,7 @@ export async function fetchDirections(params?: {
   const qs = new URLSearchParams();
   if (params?.university) qs.set("university", params.university);
   if (params?.subject) qs.set("subject", String(params.subject));
+  qs.set("page_size", "100");
   const data = await api<{ results: Direction[] }>(
     `/directions/?${qs.toString()}`
   );

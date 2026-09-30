@@ -1,12 +1,13 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchSubjects, type Subject } from "@/lib/catalog";
+import { ApiError, extractFieldError } from "@/lib/api";
+import { fetchSubjects, localizedName, type Subject } from "@/lib/catalog";
 import {
   createQuestion,
   deleteQuestion,
@@ -58,6 +59,11 @@ function difficultyKey(d: number): string {
 export function QuestionsManager() {
   const t = useTranslations("teacher");
   const common = useTranslations("common");
+  const locale = useLocale();
+  // Question bank content is authored in uz with optional ru/en translations;
+  // the list shows whichever translation exists for the active locale.
+  const displayText = (uz: string, ru?: string | null, en?: string | null) =>
+    locale === "ru" ? ru || uz : locale === "en" ? en || uz : uz;
 
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [questions, setQuestions] = useState<Question[] | null>(null);
@@ -106,19 +112,6 @@ export function QuestionsManager() {
       ignore = true;
     };
   }, [filterStatus, filterSubject, common]);
-  useEffect(() => {
-    let ignore = false;
-    fetchSubjects()
-      .then((subs) => {
-        if (!ignore) setSubjects(subs);
-      })
-      .catch(() => {
-        if (!ignore) setError(common("error"));
-      });
-    return () => {
-      ignore = true;
-    };
-  }, [common]);
 
   const subjectsById = useMemo(() => {
     const map = new Map<number, Subject>();
@@ -207,7 +200,11 @@ export function QuestionsManager() {
       setForm(EMPTY_FORM);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : common("error"));
+      setError(
+        e instanceof ApiError
+          ? extractFieldError(e.detail) ?? e.message
+          : common("error")
+      );
     } finally {
       setSaving(false);
     }
@@ -223,7 +220,7 @@ export function QuestionsManager() {
   };
 
   const remove = async (q: Question) => {
-    if (!window.confirm(t("confirmDelete"))) return;
+    if (!window.confirm(t("questions.confirmDelete"))) return;
     try {
       await deleteQuestion(q.id);
       load();
@@ -251,11 +248,12 @@ export function QuestionsManager() {
           className="input input-sm"
           value={filterSubject}
           onChange={(e) => setFilterSubject(e.target.value)}
+          aria-label={t("questions.allSubjects")}
         >
           <option value="">{t("questions.allSubjects")}</option>
           {(subjects ?? []).map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name_uz}
+              {localizedName(s, locale)}
             </option>
           ))}
         </select>
@@ -263,6 +261,7 @@ export function QuestionsManager() {
           className="input input-sm"
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value as QuestionStatus | "")}
+          aria-label={t("questions.allStatuses")}
         >
           <option value="">{t("questions.allStatuses")}</option>
           <option value="draft">{t("questions.statusDraft")}</option>
@@ -280,8 +279,9 @@ export function QuestionsManager() {
           </h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <label className="label">{t("questions.subject")}</label>
+              <label className="label" htmlFor="qm-subject">{t("questions.subject")}</label>
               <select
+                id="qm-subject"
                 className="input"
                 value={form.subject}
                 onChange={(e) => setForm({ ...form, subject: e.target.value })}
@@ -289,14 +289,15 @@ export function QuestionsManager() {
                 <option value="">{common("none")}</option>
                 {(subjects ?? []).map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name_uz}
+                    {localizedName(s, locale)}
                   </option>
                 ))}
               </select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="label">{t("questions.difficulty")}</label>
+              <label className="label" htmlFor="qm-difficulty">{t("questions.difficulty")}</label>
               <select
+                id="qm-difficulty"
                 className="input"
                 value={form.difficulty}
                 onChange={(e) =>
@@ -310,8 +311,9 @@ export function QuestionsManager() {
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="label">{t("questions.text")}</label>
+            <label className="label" htmlFor="qm-text">{t("questions.text")}</label>
             <textarea
+              id="qm-text"
               className="input min-h-[90px]"
               value={form.text_uz}
               onChange={(e) => setForm({ ...form, text_uz: e.target.value })}
@@ -325,6 +327,7 @@ export function QuestionsManager() {
                 <select
                   className="input input-sm"
                   value={form.question_type}
+                  aria-label={t("questions.options")}
                   onChange={(e) =>
                     setForm({ ...form, question_type: e.target.value as "single" | "multiple" })
                   }
@@ -358,13 +361,14 @@ export function QuestionsManager() {
                       className="input input-sm flex-1"
                       value={opt.text_uz}
                       placeholder={`${t("questions.option")} ${String.fromCharCode(65 + i)}`}
+                      aria-label={`${t("questions.option")} ${String.fromCharCode(65 + i)}`}
                       onChange={(e) => setOption(i, { text_uz: e.target.value })}
                     />
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm"
                       onClick={() => removeOption(i)}
-                      aria-label={common("cancel")}
+                      aria-label={`${t("questions.delete")} ${String.fromCharCode(65 + i)}`}
                     >
                       ✕
                     </button>
@@ -374,8 +378,9 @@ export function QuestionsManager() {
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="label">{t("questions.explanation")}</label>
+            <label className="label" htmlFor="qm-explanation">{t("questions.explanation")}</label>
             <textarea
+              id="qm-explanation"
               className="input min-h-[70px]"
               value={form.explanation_uz}
               onChange={(e) => setForm({ ...form, explanation_uz: e.target.value })}
@@ -423,7 +428,12 @@ export function QuestionsManager() {
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-subtle">#{q.id}</span>
-                    <Badge>{subjectsById.get(q.subject)?.name_uz ?? String(q.subject)}</Badge>
+                    <Badge>
+                      {(() => {
+                        const s = subjectsById.get(q.subject);
+                        return s ? localizedName(s, locale) : String(q.subject);
+                      })()}
+                    </Badge>
                     <Badge>{t(`questions.${difficultyKey(q.difficulty)}`)}</Badge>
                     <Badge
                       variant={
@@ -441,11 +451,11 @@ export function QuestionsManager() {
                           : t("questions.statusDraft")}
                     </Badge>
                   </div>
-                  <p className="font-medium">{q.text_uz}</p>
+                  <p className="font-medium">{displayText(q.text_uz, q.text_ru, q.text_en)}</p>
                   <p className="mt-1 flex flex-wrap gap-2 text-xs text-subtle">
                     {q.options.map((o, i) => (
                       <span key={i} className={cn(o.is_correct && "font-semibold text-success")}>
-                        {String.fromCharCode(65 + i)}. {o.text_uz}
+                        {String.fromCharCode(65 + i)}. {displayText(o.text_uz, o.text_ru, o.text_en)}
                       </span>
                     ))}
                   </p>

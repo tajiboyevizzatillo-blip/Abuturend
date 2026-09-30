@@ -10,6 +10,7 @@
     "dashboard": "Dashboard",
     "subjects": "Subjects",
     "mockExams": "Mock exams",
+    "mistakes": "Mistakes",
     "universities": "Universities",
     "premium": "Premium",
     "achievements": "Achievements",
@@ -47,7 +48,9 @@
     "pressEnter": "Press Enter",
     "reset": "Reset",
     "minUnit": "min",
-    "inProgress": "In progress"
+    "inProgress": "In progress",
+    "notFoundTitle": "Page not found",
+    "notFoundDesc": "The page you are looking for may have been moved or deleted."
   },
   "landing": {
     "badge": "DTM / BMB exam preparation",
@@ -171,7 +174,14 @@
     "passwordHint": "At least 8 characters",
     "profileSaved": "Profile saved successfully",
     "passwordChanged": "Password changed successfully",
-    "passwordMismatch": "New passwords do not match"
+    "passwordMismatch": "New passwords do not match",
+    "personalInfo": "Personal details",
+    "changePasswordTitle": "Change password",
+    "forgotSent": "If this email is registered, a password reset link has been sent. Check your inbox.",
+    "resetTitle": "Set a new password",
+    "resetBtn": "Save and sign in",
+    "resetSuccess": "Password changed. Redirecting you to the sign-in page.",
+    "resetInvalid": "The link is invalid or expired. Request a new one."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -243,7 +253,7 @@
     "subscribed": "Plan activated!",
     "freeBadge": "FREE",
     "proBadge": "PRO",
-    "paywall": "Payments are currently open for the free plan only.",
+    "paywall": "Could not start the payment. Please try again.",
     "freePlanName": "Free (trial)",
     "featuresFree1": "3 sessions per day",
     "featuresPro1": "Unlimited practice sessions",
@@ -258,7 +268,19 @@
     "needLogin": "Sign in to subscribe.",
     "paywallTitle": "Today's free sessions are used up",
     "paywallDesc": "The free plan allows 3 sessions per day. Switch to PRO for unlimited practice.",
-    "paywallCta": "View plans"
+    "paywallCta": "View plans",
+    "chooseProvider": "Choose a payment method",
+    "payTitle": "Payment",
+    "payPending": "Waiting for payment...",
+    "payPendingHint": "Once you finish on the payment page, the status updates automatically.",
+    "payOpen": "Open payment page",
+    "payCheck": "Check status",
+    "payChecking": "Checking...",
+    "payPaid": "Payment succeeded! Your plan is now active.",
+    "payCancelled": "Payment was cancelled.",
+    "payFailed": "The payment failed.",
+    "payBack": "Back to Premium",
+    "payNotFound": "Payment not found."
   },
   "gamification": {
     "title": "Achievements",
@@ -336,7 +358,13 @@
     "autoFinishNotice": "Time is up — exam finished automatically.",
     "history": "Results history",
     "yourAnswer": "Your answer",
-    "review": "Review"
+    "review": "Review",
+    "startNotice": "10 questions. Starting the answers consumes one session from your daily limit.",
+    "unifiedTitle": "Unified exam",
+    "unifiedDesc": "Questions from every subject · total score and certificate",
+    "certTitle": "Get a certificate",
+    "certInternational": "International",
+    "certLocal": "Local"
   },
   "results": {
     "title": "Result",
@@ -376,5 +404,48 @@
     "services": "Services",
     "rights": "All rights reserved.",
     "location": "Uzbekistan · Higher education preparation platform"
+  },
+  "cert": {
+    "title": "Certificates",
+    "subtitle": "Certificates issued for your unified exam results",
+    "empty": "You have no certificates yet",
+    "emptyHint": "Finish a unified exam and get a certificate for your result",
+    "goExam": "Take an exam",
+    "verifyOk": "Certificate is authentic",
+    "notFound": "Certificate not found",
+    "notFoundHint": "Check the serial number and try again",
+    "serial": "Serial number",
+    "fullName": "Full name",
+    "score": "Score",
+    "grade": "Band",
+    "result": "Result",
+    "issued": "Issued on",
+    "print": "Print",
+    "back": "Back",
+    "myCerts": "My certificates",
+    "international": "International certificate",
+    "local": "Local certificate",
+    "passed": "Passed",
+    "notPassed": "Not passed",
+    "loadError": "Failed to load",
+    "verifyUrlHint": "Verification link"
+  },
+  "mistakes": {
+    "title": "Mistakes notebook",
+    "subtitle": "Questions you answered wrongly — drill them again here",
+    "count": "{count} mistakes",
+    "loadError": "Failed to load mistakes",
+    "empty": "No mistakes",
+    "emptyHint": "No wrong answers yet. Keep practising!",
+    "goExam": "Take an exam",
+    "activeGroup": "To review",
+    "masteredGroup": "Mastered",
+    "mastered": "Mastered",
+    "allSubjects": "All subjects",
+    "wrongCount": "{count}× wrong",
+    "limitNote": "Up to 30 questions per session",
+    "start": "Start ({count})",
+    "startTitle": "Mistakes drill",
+    "startNotice": "A session of {count} questions you got wrong"
   }
 }

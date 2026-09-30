@@ -24,7 +24,6 @@ const MEDALS: Record<number, { ring: string; text: string; label: string }> = {
 export function Leaderboard() {
   const t = useTranslations("landing");
   const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
-  const [error, setError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,14 +33,14 @@ export function Leaderboard() {
         if (!cancelled) setEntries(Array.isArray(data) ? data : []);
       })
       .catch(() => {
-        if (!cancelled) setError(true);
+        // Degrade to the empty/join state instead of blanking the section.
+        if (!cancelled) setEntries([]);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (error) return null;
   if (!entries) {
     return (
       <div className="mx-auto max-w-7xl px-4 pb-24 sm:px-6">

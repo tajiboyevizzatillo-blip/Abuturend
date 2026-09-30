@@ -2,37 +2,30 @@
 
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { Link } from "@/i18n/navigation";
 import { ProtectedShell } from "@/components/layout/protected-shell";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/components/providers/auth-provider";
-import { api, ApiError, extractFieldError } from "@/lib/api";
+import { api, ApiError, extractFieldError, type CurrentUser } from "@/lib/api";
 
-export default function ProfilePage() {
+// Keyed by user id: the form state is rebuilt whenever the account changes,
+// so an empty form can never PATCH blank values over a loaded profile.
+function DetailsCard({ user, onSaved }: { user: CurrentUser; onSaved: () => Promise<void> }) {
   const t = useTranslations("auth");
   const common = useTranslations("common");
-  const { user, refresh } = useAuth();
 
   const [form, setForm] = useState({
-    first_name: user?.first_name ?? "",
-    last_name: user?.last_name ?? "",
-    email: user?.email ?? "",
-    phone: user?.phone ?? "",
+    first_name: user.first_name ?? "",
+    last_name: user.last_name ?? "",
+    email: user.email ?? "",
+    phone: user.phone ?? "",
   });
   const [saved, setSaved] = useState(false);
-  const [passSaved, setPassSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-
-  const [pass, setPass] = useState({
-    old_password: "",
-    new_password: "",
-    confirm: "",
-  });
-  const [passError, setPassError] = useState<string | null>(null);
-  const [passPending, setPassPending] = useState(false);
 
   const saveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,7 +37,7 @@ export default function ProfilePage() {
         method: "PATCH",
         body: JSON.stringify(form),
       });
-      await refresh();
+      await onSaved();
       setSaved(true);
     } catch (err) {
       setError(
@@ -56,6 +49,71 @@ export default function ProfilePage() {
       setPending(false);
     }
   };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("profile")}</CardTitle>
+        <CardDescription>{t("personalInfo")}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={saveProfile} className="flex flex-col gap-4">
+          {saved ? <Alert variant="success">{t("profileSaved")}</Alert> : null}
+          {error ? <Alert variant="danger">{error}</Alert> : null}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label={t("firstName")}
+              name="first_name"
+              value={form.first_name}
+              onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+            />
+            <Input
+              label={t("lastName")}
+              name="last_name"
+              value={form.last_name}
+              onChange={(e) => setForm({ ...form, last_name: e.target.value })}
+            />
+          </div>
+          <Input
+            label={t("email")}
+            name="email"
+            type="email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+          />
+          <Input
+            label={t("phone")}
+            name="phone"
+            type="tel"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+          />
+          <div className="flex justify-end">
+            <Button type="submit" disabled={pending}>
+              {pending ? common("loading") : common("save")}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function ProfilePage() {
+  const t = useTranslations("auth");
+  const common = useTranslations("common");
+  const certT = useTranslations("cert");
+  const { user, refresh } = useAuth();
+
+  const [passSaved, setPassSaved] = useState(false);
+  const [passError, setPassError] = useState<string | null>(null);
+  const [passPending, setPassPending] = useState(false);
+
+  const [pass, setPass] = useState({
+    old_password: "",
+    new_password: "",
+    confirm: "",
+  });
 
   const changePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,57 +172,25 @@ export default function ProfilePage() {
           </div>
         </div>
         <div className="mt-6 flex flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>{t("profile")}</CardTitle>
-              <CardDescription>{t("username")}</CardDescription>
-            </CardHeader>
-            <CardContent>
-<form onSubmit={saveProfile} className="flex flex-col gap-4">
-                {saved ? <Alert variant="success">{t("profileSaved")}</Alert> : null}
-                {error ? <Alert variant="danger">{error}</Alert> : null}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Input
-                    label={t("firstName")}
-                    name="first_name"
-                    value={form.first_name}
-                    onChange={(e) => setForm({ ...form, first_name: e.target.value })}
-                  />
-                  <Input
-                    label={t("lastName")}
-                    name="last_name"
-                    value={form.last_name}
-                    onChange={(e) => setForm({ ...form, last_name: e.target.value })}
-                  />
-                </div>
-                <Input
-                  label={t("email")}
-                  name="email"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                />
-                <Input
-                  label={t("phone")}
-                  name="phone"
-                  type="tel"
-                  value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                />
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={pending}>
-                    {pending ? common("loading") : common("save")}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+          {user ? (
+            <DetailsCard key={user.id} user={user} onSaved={refresh} />
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("profile")}</CardTitle>
+                <CardDescription>{t("personalInfo")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted">{common("loading")}</p>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
-              <CardTitle>{t("forgotTitle")}</CardTitle>
+              <CardTitle>{t("changePasswordTitle")}</CardTitle>
             </CardHeader>
-<CardContent>
+            <CardContent>
               <form onSubmit={changePassword} className="flex flex-col gap-4">
                 {passSaved ? <Alert variant="success">{t("passwordChanged")}</Alert> : null}
                 {passError ? <Alert variant="danger">{passError}</Alert> : null}
@@ -202,6 +228,18 @@ export default function ProfilePage() {
                   </Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{certT("title")}</CardTitle>
+              <CardDescription>{certT("subtitle")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link href="/certificates" className="btn btn-secondary">
+                📜 {certT("myCerts")}
+              </Link>
             </CardContent>
           </Card>
         </div>

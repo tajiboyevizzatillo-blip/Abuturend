@@ -6,6 +6,7 @@ environment variables (.env in development, real env vars in production).
 """
 
 import os
+import sys
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -40,11 +41,21 @@ SECRET_KEY = os.environ.get(
     "django-insecure-local-dev-only-change-me",
 )
 
-DEBUG = env_bool("DJANGO_DEBUG", True)
+# Default: DEBUG is on only for the dev server (manage.py runserver). Any real
+# server process (gunicorn/uvicorn/docker) starts with DEBUG off unless the
+# environment explicitly opts in — a missing DJANGO_DEBUG in production can no
+# longer expose traceback pages.
+DEBUG = env_bool("DJANGO_DEBUG", "runserver" in sys.argv)
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 
-if not DEBUG and (
+# Fail closed when a real server process starts without a proper secret.
+# manage.py CLI (test/check/migrate/seed) does not serve traffic and runs with
+# DEBUG off by default, so it is exempt: local development must not require a
+# secret key just to run the test suite.
+IS_MANAGE_CLI = Path(sys.argv[0]).name.startswith("manage")
+
+if not DEBUG and not IS_MANAGE_CLI and (
     SECRET_KEY == "django-insecure-local-dev-only-change-me"
     or not os.environ.get("DJANGO_SECRET_KEY")
 ):
@@ -77,6 +88,7 @@ INSTALLED_APPS = [
     "questions",
     "practice",
     "premium",
+    "payments",
     "gamification",
     "universities",
     "telegrambot",
@@ -202,6 +214,7 @@ REST_FRAMEWORK = {
         "register": "5/hour",
         "password": "10/hour",
         "answers": "120/min",
+        "checkout": "20/min",
     },
 }
 
@@ -274,6 +287,16 @@ EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND",
     "django.core.mail.backends.console.EmailBackend",
 )
+EMAIL_HOST = os.environ.get("DJANGO_EMAIL_HOST", "")
+EMAIL_PORT = env_int("DJANGO_EMAIL_PORT", 587)
+EMAIL_HOST_USER = os.environ.get("DJANGO_EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("DJANGO_EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("DJANGO_EMAIL_USE_TLS", True)
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DJANGO_DEFAULT_FROM_EMAIL", "noreply@abituriyent.orgtrace.uz"
+)
+# Password-reset links point back at the frontend.
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000")
 
 # ---- Telegram bot (admin bildirishnomalar) ---------------------------------
 
@@ -292,3 +315,21 @@ TELEGRAM_WEBHOOK_HOST = os.environ.get("TELEGRAM_WEBHOOK_HOST", "")
 #   MCP_ADMIN_API_KEY — additionally required for include_answers=True
 MCP_API_KEY = os.environ.get("MCP_API_KEY", "")
 MCP_ADMIN_API_KEY = os.environ.get("MCP_ADMIN_API_KEY", "")
+
+# ---- Payments (Payme / Click) ----------------------------------------------
+# Ikkalasi ham "fail closed": kalit bo'sh bo'lsa webhook butunlay rad etiladi.
+#
+#   Payme Merchant API — /webhooks/payme/ (JSON-RPC, Basic auth)
+#     PAYME_LOGIN       — kassa logini (ba'zi kabinetlarda "Paycom")
+#     PAYME_KEY         — kassa kaliti
+#     PAYME_MERCHANT_ID — checkout havolasidagi `m=` (ID yoki alias)
+#   Click Shop API — /webhooks/click/ (Prepare/Complete, md5 sign_string)
+#     CLICK_SERVICE_ID / CLICK_MERCHANT_ID / CLICK_SECRET_KEY
+PAYME_LOGIN = os.environ.get("PAYME_LOGIN", "Paycom")
+PAYME_KEY = os.environ.get("PAYME_KEY", "")
+PAYME_MERCHANT_ID = os.environ.get("PAYME_MERCHANT_ID", "")
+PAYME_CHECKOUT_URL = os.environ.get("PAYME_CHECKOUT_URL", "https://checkout.paycom.uz")
+CLICK_SERVICE_ID = env_int("CLICK_SERVICE_ID", 0)
+CLICK_MERCHANT_ID = env_int("CLICK_MERCHANT_ID", 0)
+CLICK_SECRET_KEY = os.environ.get("CLICK_SECRET_KEY", "")
+CLICK_PAY_URL = os.environ.get("CLICK_PAY_URL", "https://my.click.uz/services/pay")

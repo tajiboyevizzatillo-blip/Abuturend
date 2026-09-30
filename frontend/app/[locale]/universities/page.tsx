@@ -212,14 +212,14 @@ export default function UniversitiesPage() {
               <Skeleton key={i} className="h-52" />
             ))}
           </div>
-        ) : visible.length === 0 ? (
+        ) : !error && visible.length === 0 ? (
           <div className="card flex flex-col items-center gap-3 p-14 text-center">
             <p className="text-muted">{common("empty")}</p>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setQuery(""); setActiveSubject(null); }}>
               {common("reset")}
             </button>
           </div>
-        ) : (
+        ) : !error ? (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {visible.map((u) => {
               const isOpen = expanded === u.slug;
@@ -303,7 +303,7 @@ export default function UniversitiesPage() {
               );
             })}
           </div>
-        )}
+        ) : null}
 
         {activeSubject != null ? (
           <p className="mt-6 text-center text-xs text-subtle">{t("subjectHint")}</p>

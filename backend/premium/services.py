@@ -1,3 +1,8 @@
+from datetime import timedelta
+
+from django.contrib.auth import get_user_model
+from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from .models import Subscription
@@ -5,12 +10,37 @@ from .models import Subscription
 FREE_TIER_DAILY_LIMIT = 3
 
 
+@transaction.atomic
+def activate_plan(user, plan):
+    """Create a subscription for ``plan`` on top of any active one.
+
+    Renewals stack: a new subscription starts where the current active one
+    ends so the user never loses paid days. The user row is locked so two
+    concurrent successful payments cannot both stack from the same end date.
+    """
+    User = get_user_model()
+    User.objects.select_for_update().get(pk=user.pk)
+    now = timezone.now()
+    active = active_subscription(user)
+    starts_at = active.ends_at if (active is not None and active.ends_at) else now
+    ends_at = starts_at + timedelta(days=plan.duration_days)
+    return Subscription.objects.create(
+        user=user, plan=plan, starts_at=starts_at, ends_at=ends_at
+    )
+
+
 def active_subscription(user):
-    """The most recent active subscription for ``user``, or None."""
+    """The most recent active subscription for ``user``, or None.
+
+    ``ends_at`` may be NULL for an admin-created open-ended subscription —
+    that counts as active (mirrors ``Subscription.is_active``).
+    """
     if not user or not user.is_authenticated:
         return None
+    now = timezone.now()
     return (
-        Subscription.objects.filter(user=user, ends_at__gt=timezone.now())
+        Subscription.objects.filter(user=user, starts_at__lte=now)
+        .filter(Q(ends_at__isnull=True) | Q(ends_at__gt=now))
         .select_related("plan")
         .order_by("-created_at")
         .first()

@@ -10,13 +10,12 @@ class BadgeListView(APIView):
 
     def get(self, request):
         stats = user_stats(request.user)
+        badges = badges_payload(request.user)
         return Response(
             {
                 "level": level_info(stats["xp"]),
-                "earned_count": len(
-                    [b for b in badges_payload(request.user) if b["earned"]]
-                ),
-                "badges": badges_payload(request.user),
+                "earned_count": len([b for b in badges if b["earned"]]),
+                "badges": badges,
             }
         )
 

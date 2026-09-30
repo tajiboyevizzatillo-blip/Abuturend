@@ -71,8 +71,12 @@ export default function RegisterPage() {
             mapped[k] = String(v[0]);
           }
         }
-        if (Object.keys(mapped).length) setFieldErrors(mapped);
-        else setError(extractFieldError(err.detail) ?? t("errorRequired"));
+        if (Object.keys(mapped).length) {
+          setFieldErrors(mapped);
+          // A field error on a control without inline display (role select)
+          // would otherwise fail silently — surface it as the form alert too.
+          setError(mapped.role ?? mapped.username ?? null);
+        } else setError(extractFieldError(err.detail) ?? t("errorRequired"));
       } else {
         setError(t("errorRequired"));
       }
@@ -152,6 +156,9 @@ export default function RegisterPage() {
             <option value="student">{t("roleStudent")}</option>
             <option value="teacher">{t("roleTeacher")}</option>
           </select>
+          {fieldErrors.role ? (
+            <span className="text-xs font-medium text-danger">{fieldErrors.role}</span>
+          ) : null}
         </div>
         <Input
           label={t("password")}

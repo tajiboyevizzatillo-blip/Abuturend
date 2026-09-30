@@ -9,8 +9,8 @@ export default function NotFound() {
       <p className="font-serif italic bg-gradient-to-r from-primary to-accent bg-clip-text text-7xl font-bold text-transparent">
         404
       </p>
-      <h1 className="pt-2 text-h2 font-extrabold tracking-tight">Sahifa topilmadi</h1>
-      <p className="text-muted">{t("empty")}</p>
+      <h1 className="pt-2 text-h2 font-extrabold tracking-tight">{t("notFoundTitle")}</h1>
+      <p className="text-muted">{t("notFoundDesc")}</p>
       <Link
         href="/"
         className="btn btn-primary btn-lg mt-4"

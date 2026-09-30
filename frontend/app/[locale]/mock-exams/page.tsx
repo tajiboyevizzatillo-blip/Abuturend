@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { ProtectedShell } from "@/components/layout/protected-shell";
 import { Alert } from "@/components/ui/alert";
@@ -10,7 +10,7 @@ import { fetchSubjects, localizedName, type Subject } from "@/lib/catalog";
 import { fetchSessionList, type SessionListItem } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 
-function HistoryList({ onBack }: { onBack: () => void }) {
+function HistoryList({ subjects, onBack }: { subjects: Subject[]; onBack: () => void }) {
   const t = useTranslations("exam");
   const common = useTranslations("common");
   const locale = useLocale();
@@ -28,7 +28,12 @@ function HistoryList({ onBack }: { onBack: () => void }) {
     load();
   }, [load]);
 
-  const subjectName = (id: number) => subjectsNameCache.get(id) ?? `#${id}`;
+  const nameById = useMemo(
+    () => new Map(subjects.map((s) => [s.id, localizedName(s, locale)])),
+    [subjects, locale]
+  );
+  const subjectName = (id: number | null) =>
+    id === null ? t("unifiedTitle") : nameById.get(id) ?? `#${id}`;
 
   return (
     <div className="mx-auto w-full max-w-2xl flex-1 px-4 py-8 sm:px-6">
@@ -63,24 +68,33 @@ function HistoryList({ onBack }: { onBack: () => void }) {
               <div
                 className={cn(
                   "relative h-16 w-16 shrink-0",
-                  r.status === "finished" && r.score_percent >= 60 ? "text-success" : "text-danger"
+                  r.status === "finished" && (r.score_percent ?? 0) >= 60 ? "text-success" : "text-danger"
                 )}
               >
-                <div className="score-ring absolute inset-0" style={{ "--p": r.score_percent } as React.CSSProperties} />
+                <div
+                  className="score-ring absolute inset-0"
+                  style={{ "--p": r.score_percent ?? 0 } as React.CSSProperties}
+                  role="progressbar"
+                  aria-valuenow={r.score_percent ?? 0}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                />
                 <div className="absolute inset-0 flex items-center justify-center text-sm font-bold tabular-nums">
-                  {r.status === "finished" ? `${r.score_percent}%` : "…"}
+                  {r.status === "finished" ? `${r.score_percent ?? 0}%` : "…"}
                 </div>
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <p className="truncate font-semibold">{subjectName(r.subject.id)}</p>
+                <p className="truncate font-semibold">{subjectName(r.subject?.id ?? null)}</p>
                 <p className="text-xs text-subtle">
                   {new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(r.started_at))}
                 </p>
                 <div className="mt-1 flex gap-2">
                   <span className="badge badge-neutral">
-                    {r.correct_answers}/{r.question_count} ✓
+                    {r.correct_answers ?? "…"}/{r.question_count} ✓
                   </span>
-                  <span className="badge badge-neutral">{r.incorrect_answers + r.unanswered} ✗</span>
+                  <span className="badge badge-neutral">
+                    {r.correct_answers === null ? "…" : (r.incorrect_answers ?? 0) + r.unanswered} ✗
+                  </span>
                 </div>
               </div>
               <span className={cn("badge", r.status === "finished" ? "badge-success" : "badge-warning")}>
@@ -94,18 +108,14 @@ function HistoryList({ onBack }: { onBack: () => void }) {
   );
 }
 
-// keep a module-level subject name cache
-const subjectsNameCache = new Map<number, string>();
-
 export default function MockExamsPage() {
   const common = useTranslations("common");
-  const locale = useLocale();
 
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"setup" | "player" | "history">("setup");
   const [active, setActive] = useState<{
-    subject: Subject;
+    subject: Subject | null;
     questionCount: number;
     minutes: number;
     key: number;
@@ -115,12 +125,7 @@ export default function MockExamsPage() {
     let ignore = false;
     fetchSubjects()
       .then((data) => {
-        if (!ignore) {
-          setSubjects(data);
-          for (const s of data) {
-            subjectsNameCache.set(s.id, localizedName(s, locale));
-          }
-        }
+        if (!ignore) setSubjects(data);
       })
       .catch(() => {
         if (!ignore) setError(common("error"));
@@ -128,7 +133,7 @@ export default function MockExamsPage() {
     return () => {
       ignore = true;
     };
-  }, [common, locale]);
+  }, [common]);
 
   return (
     <ProtectedShell>
@@ -173,7 +178,7 @@ export default function MockExamsPage() {
           }}
         />
       ) : view === "history" ? (
-        <HistoryList onBack={() => setView("setup")} />
+        <HistoryList subjects={subjects ?? []} onBack={() => setView("setup")} />
       ) : null}
     </ProtectedShell>
   );

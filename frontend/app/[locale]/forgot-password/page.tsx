@@ -7,6 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link } from "@/i18n/navigation";
+import { api, ApiError, extractFieldError } from "@/lib/api";
 
 export default function ForgotPasswordPage() {
   const t = useTranslations("auth");
@@ -14,15 +15,29 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPending(true);
-    // Reset link yuborish keyingi fazalarda (email backend) ulangan bo'ladi.
-    setTimeout(() => {
-      setPending(false);
+    setError(null);
+    try {
+      await api("/auth/password-reset/", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      // The endpoint always answers 200 (no account enumeration), so "sent"
+      // is shown either way.
       setSent(true);
-    }, 500);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? extractFieldError(err.detail) ?? t("errorRequired")
+          : t("errorRequired")
+      );
+    } finally {
+      setPending(false);
+    }
   };
 
   return (
@@ -38,9 +53,10 @@ export default function ForgotPasswordPage() {
       }
     >
       {sent ? (
-        <Alert variant="success">{t("forgotBtn")}</Alert>
+        <Alert variant="success">{t("forgotSent")}</Alert>
       ) : (
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          {error ? <Alert variant="danger">{error}</Alert> : null}
           <Input
             label={t("email")}
             name="email"
