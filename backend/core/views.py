@@ -215,7 +215,7 @@ API_ENDPOINTS = [
         "path": "/api/leaderboard/",
         "method": "GET",
         "auth": "public",
-        "purpose": "Top 10 students by correct answers across finished sessions. Staff accounts are excluded.",
+        "purpose": "Leaderboard of students by correct answers across finished sessions (?limit=1..50, default 10). Staff accounts are excluded.",
     },
     {
         "path": "/api/premium/plans/",

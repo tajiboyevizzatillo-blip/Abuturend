@@ -384,10 +384,16 @@ export function DashboardClient() {
                 <Icon name="chart" size={19} className="text-primary" />
                 {t("recentResults")}
               </CardTitle>
-              <Link href="/subjects" className="flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
-                {t("startPractice")}
-                <Icon name="arrowRight" size={15} />
-              </Link>
+              <div className="flex flex-wrap items-center gap-3">
+                <Link href="/history" className="flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
+                  {t("viewAll")}
+                  <Icon name="arrowRight" size={15} />
+                </Link>
+                <Link href="/subjects" className="hidden items-center gap-1 text-sm font-semibold text-primary hover:underline sm:flex">
+                  {t("startPractice")}
+                  <Icon name="arrowRight" size={15} />
+                </Link>
+              </div>
             </CardHeader>
             <CardContent className="p-0 sm:p-6">
               {stats.recent_sessions.length === 0 ? (
@@ -436,7 +442,12 @@ export function DashboardClient() {
                             </td>
                             <td className="text-right">
                               {done ? (
-                                <span className={cn("badge", tone.bg)}>{s.score_percent}%</span>
+                                <Link
+                                  href={`/results/${s.id}`}
+                                  className={cn("badge hover:underline", tone.bg)}
+                                >
+                                  {s.score_percent}%
+                                </Link>
                               ) : (
                                 <span className="badge badge-neutral">{t("inProgress")}</span>
                               )}

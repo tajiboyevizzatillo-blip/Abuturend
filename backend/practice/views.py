@@ -42,6 +42,15 @@ class LeaderboardView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        # ?limit= — the landing widget wants 10, the /leaderboard page up to 50.
+        try:
+            limit = int(request.query_params.get("limit", 10))
+        except (TypeError, ValueError):
+            limit = 10
+        if limit > 50:
+            limit = 50
+        elif limit < 1:
+            limit = 10  # 0 / negative means "use the default"
         queryset = (
             User.objects.annotate(
                 finished_sessions=Count(
@@ -60,7 +69,7 @@ class LeaderboardView(APIView):
             )
             .filter(finished_sessions__gt=0, is_active=True)
             .exclude(Q(is_staff=True) | Q(is_superuser=True))
-            .order_by("-correct_answers", "-total_answered")[:10]
+            .order_by("-correct_answers", "-total_answered")[:limit]
         )
         for rank, user in enumerate(queryset, start=1):
             user.rank = rank

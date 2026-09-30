@@ -19,7 +19,8 @@
     "teacherPanel": "O'qituvchi paneli",
     "language": "Til",
     "telegramBot": "Telegram bot",
-    "menu": "Menyu"
+    "menu": "Menyu",
+    "leaderboard": "Reyting"
   },
   "common": {
     "loading": "Yuklanmoqda...",
@@ -223,7 +224,8 @@
     "startMock": "Boshlash",
     "audio": "Savollar",
     "diff-medium": "O'rta daraja",
-    "perQ": "savol · {minutes} daqiqa"
+    "perQ": "savol · {minutes} daqiqa",
+    "viewAll": "Barchasi"
   },
   "subjects": {
     "title": "Fanlar",
@@ -380,7 +382,8 @@
     "explanations": "Izohlar",
     "weakAreas": "Kuchsiz yo'nalishlar",
     "recommendedPractice": "Tavsiya etilgan mashq",
-    "viewDetailed": "Batafsil ko'rish"
+    "viewDetailed": "Batafsil ko'rish",
+    "notFound": "Natija topilmadi"
   },
   "universities": {
     "title": "Universitetlar",
@@ -428,7 +431,9 @@
     "passed": "Muvaffaqiyatli o'tdi",
     "notPassed": "O'tmadi",
     "loadError": "Yuklashda xatolik",
-    "verifyUrlHint": "Tekshirish havolasi"
+    "verifyUrlHint": "Tekshirish havolasi",
+    "share": "Havolani nusxalash",
+    "copied": "Nusxalandi"
   },
   "mistakes": {
     "title": "Xatolar daftari",
@@ -447,5 +452,32 @@
     "start": "Mashq qilish ({count})",
     "startTitle": "Xatolar bo'yicha mashq",
     "startNotice": "{count} ta xato savol bo'yicha mashq boshlanadi"
+  },
+  "leaderboard": {
+    "title": "Reyting",
+    "subtitle": "Eng yaxshi abituriyentlar — to'g'ri javoblar bo'yicha",
+    "rank": "O'rin",
+    "student": "O'quvchi",
+    "sessions": "Yakunlangan",
+    "correct": "To'g'ri",
+    "accuracy": "Aniqlik",
+    "empty": "Hozircha reyting yo'q",
+    "emptyHint": "Birinchi bo'ling — imtihonlarni yakunlang!",
+    "join": "Ro'yxatdan o'tish",
+    "updated": "Har bir yakunlangan sessiyadan keyin yangilanadi"
+  },
+  "history": {
+    "title": "Tarix",
+    "subtitle": "Barcha mashq va imtihon sessiyalari",
+    "filterAll": "Hammasi",
+    "filterExam": "Imtihonlar",
+    "filterPractice": "Mashqlar",
+    "subjectAll": "Barcha fanlar",
+    "exportCsv": "CSV yuklab olish",
+    "empty": "Hozircha sessiya yo'q",
+    "emptyHint": "Imtihon yoki mashq boshlang — natijalar shu yerda to'planadi",
+    "goExam": "Imtihondan o'tish",
+    "count": "{count} ta sessiya",
+    "results": "Natijalar"
   }
 }

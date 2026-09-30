@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { ProtectedShell } from "@/components/layout/protected-shell";
 import { Alert } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -63,45 +64,57 @@ function HistoryList({ subjects, onBack }: { subjects: Subject[]; onBack: () => 
         </div>
       ) : rows ? (
         <div className="flex flex-col gap-3">
-          {rows.map((r) => (
-            <div key={r.id} className="card card-hover flex items-center gap-4 p-5">
-              <div
-                className={cn(
-                  "relative h-16 w-16 shrink-0",
-                  r.status === "finished" && (r.score_percent ?? 0) >= 60 ? "text-success" : "text-danger"
-                )}
-              >
+          {rows.map((r) => {
+            const rowInner = (
+              <>
                 <div
-                  className="score-ring absolute inset-0"
-                  style={{ "--p": r.score_percent ?? 0 } as React.CSSProperties}
-                  role="progressbar"
-                  aria-valuenow={r.score_percent ?? 0}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                />
-                <div className="absolute inset-0 flex items-center justify-center text-sm font-bold tabular-nums">
-                  {r.status === "finished" ? `${r.score_percent ?? 0}%` : "…"}
+                  className={cn(
+                    "relative h-16 w-16 shrink-0",
+                    r.status === "finished" && (r.score_percent ?? 0) >= 60 ? "text-success" : "text-danger"
+                  )}
+                >
+                  <div
+                    className="score-ring absolute inset-0"
+                    style={{ "--p": r.score_percent ?? 0 } as React.CSSProperties}
+                    role="progressbar"
+                    aria-valuenow={r.score_percent ?? 0}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center text-sm font-bold tabular-nums">
+                    {r.status === "finished" ? `${r.score_percent ?? 0}%` : "…"}
+                  </div>
                 </div>
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <p className="truncate font-semibold">{subjectName(r.subject?.id ?? null)}</p>
-                <p className="text-xs text-subtle">
-                  {new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(r.started_at))}
-                </p>
-                <div className="mt-1 flex gap-2">
-                  <span className="badge badge-neutral">
-                    {r.correct_answers ?? "…"}/{r.question_count} ✓
-                  </span>
-                  <span className="badge badge-neutral">
-                    {r.correct_answers === null ? "…" : (r.incorrect_answers ?? 0) + r.unanswered} ✗
-                  </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <p className="truncate font-semibold">{subjectName(r.subject?.id ?? null)}</p>
+                  <p className="text-xs text-subtle">
+                    {new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(r.started_at))}
+                  </p>
+                  <div className="mt-1 flex gap-2">
+                    <span className="badge badge-neutral">
+                      {r.correct_answers ?? "…"}/{r.question_count} ✓
+                    </span>
+                    <span className="badge badge-neutral">
+                      {r.correct_answers === null ? "…" : (r.incorrect_answers ?? 0) + r.unanswered} ✗
+                    </span>
+                  </div>
                 </div>
+                <span className={cn("badge", r.status === "finished" ? "badge-success" : "badge-warning")}>
+                  {r.status === "finished" ? common("verified") : common("inProgress")}
+                </span>
+              </>
+            );
+            const rowClass = "card card-hover flex items-center gap-4 p-5";
+            return r.status === "finished" ? (
+              <Link key={r.id} href={`/results/${r.id}`} className={rowClass}>
+                {rowInner}
+              </Link>
+            ) : (
+              <div key={r.id} className={rowClass}>
+                {rowInner}
               </div>
-              <span className={cn("badge", r.status === "finished" ? "badge-success" : "badge-warning")}>
-                {r.status === "finished" ? common("verified") : common("inProgress")}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : null}
     </div>

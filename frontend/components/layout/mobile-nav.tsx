@@ -93,6 +93,8 @@ export function MobileNav() {
                   [
                     ["/subjects", "subjects"],
                     ["/mock-exams", "mockExams"],
+                    ["/mistakes", "mistakes"],
+                    ["/leaderboard", "leaderboard"],
                     ["/universities", "universities"],
                     ["/premium", "premium"],
                     ["/achievements", "achievements"],

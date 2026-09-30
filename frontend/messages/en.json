@@ -19,7 +19,8 @@
     "teacherPanel": "Teacher panel",
     "language": "Language",
     "telegramBot": "Telegram bot",
-    "menu": "Menu"
+    "menu": "Menu",
+    "leaderboard": "Leaderboard"
   },
   "common": {
     "loading": "Loading...",
@@ -223,7 +224,8 @@
     "startMock": "Start",
     "audio": "questions",
     "diff-medium": "Intermediate",
-    "perQ": "questions · {minutes} min"
+    "perQ": "questions · {minutes} min",
+    "viewAll": "View all"
   },
   "subjects": {
     "title": "Subjects",
@@ -380,7 +382,8 @@
     "explanations": "Explanations",
     "weakAreas": "Weak areas",
     "recommendedPractice": "Recommended practice",
-    "viewDetailed": "View details"
+    "viewDetailed": "View details",
+    "notFound": "Result not found"
   },
   "universities": {
     "title": "Universities",
@@ -428,7 +431,9 @@
     "passed": "Passed",
     "notPassed": "Not passed",
     "loadError": "Failed to load",
-    "verifyUrlHint": "Verification link"
+    "verifyUrlHint": "Verification link",
+    "share": "Copy link",
+    "copied": "Copied"
   },
   "mistakes": {
     "title": "Mistakes notebook",
@@ -447,5 +452,32 @@
     "start": "Start ({count})",
     "startTitle": "Mistakes drill",
     "startNotice": "A session of {count} questions you got wrong"
+  },
+  "leaderboard": {
+    "title": "Leaderboard",
+    "subtitle": "Top students by correct answers",
+    "rank": "Rank",
+    "student": "Student",
+    "sessions": "Finished",
+    "correct": "Correct",
+    "accuracy": "Accuracy",
+    "empty": "No entries yet",
+    "emptyHint": "Be the first — finish some exams!",
+    "join": "Sign up",
+    "updated": "Updates after every finished session"
+  },
+  "history": {
+    "title": "History",
+    "subtitle": "All practice and exam sessions",
+    "filterAll": "All",
+    "filterExam": "Exams",
+    "filterPractice": "Practice",
+    "subjectAll": "All subjects",
+    "exportCsv": "Download CSV",
+    "empty": "No sessions yet",
+    "emptyHint": "Start an exam or practice — results will collect here",
+    "goExam": "Take an exam",
+    "count": "{count} sessions",
+    "results": "Results"
   }
 }

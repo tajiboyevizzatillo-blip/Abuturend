@@ -515,6 +515,23 @@ class PracticeApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data, [])
 
+    def test_leaderboard_limit_param(self):
+        for i in range(3):
+            user = User.objects.create_user(
+                username=f"racer{i}", password="Passw0rd!", role=User.Role.STUDENT
+            )
+            self._finished_session(user, correct=10 - i, incorrect=i)
+        guest = self.client.__class__()
+        # Default stays 10 for the landing widget.
+        self.assertEqual(len(guest.get("/api/leaderboard/").data), 3)
+        res = guest.get("/api/leaderboard/?limit=2")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 2)
+        self.assertEqual(res.data[0]["rank"], 1)
+        # Garbage and out-of-range values fall back to a safe window.
+        self.assertEqual(len(guest.get("/api/leaderboard/?limit=abc").data), 3)
+        self.assertEqual(len(guest.get("/api/leaderboard/?limit=0").data), 3)
+
 
 class UnifiedExamTests(APITestCase):
     """Umumiy imtihon: a subject-less exam session sampled across subjects."""

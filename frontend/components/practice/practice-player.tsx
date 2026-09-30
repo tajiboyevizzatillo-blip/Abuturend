@@ -424,6 +424,9 @@ export function PracticePlayer({
                       {t("again")}
                     </Link>
                   )}
+                  <Link href={`/results/${sessionId}`} className="btn btn-secondary btn-lg flex-1">
+                    {res("viewDetailed")}
+                  </Link>
                   <Link href={subjectLink} className="btn btn-primary btn-lg flex-1">
                     {t("back")}
                   </Link>

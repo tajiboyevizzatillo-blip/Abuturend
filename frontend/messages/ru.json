@@ -19,7 +19,8 @@
     "teacherPanel": "Панель учителя",
     "language": "Язык",
     "telegramBot": "Telegram bot",
-    "menu": "Меню"
+    "menu": "Меню",
+    "leaderboard": "Рейтинг"
   },
   "common": {
     "loading": "Загрузка...",
@@ -223,7 +224,8 @@
     "startMock": "Начать",
     "audio": "вопросов",
     "diff-medium": "Средний уровень",
-    "perQ": "вопросов · {minutes} мин"
+    "perQ": "вопросов · {minutes} мин",
+    "viewAll": "Все"
   },
   "subjects": {
     "title": "Предметы",
@@ -380,7 +382,8 @@
     "explanations": "Объяснения",
     "weakAreas": "Слабые направления",
     "recommendedPractice": "Рекомендуемая тренировка",
-    "viewDetailed": "Подробнее"
+    "viewDetailed": "Подробнее",
+    "notFound": "Результат не найден"
   },
   "universities": {
     "title": "Университеты",
@@ -428,7 +431,9 @@
     "passed": "Успешно сдано",
     "notPassed": "Не сдано",
     "loadError": "Ошибка загрузки",
-    "verifyUrlHint": "Ссылка для проверки"
+    "verifyUrlHint": "Ссылка для проверки",
+    "share": "Скопировать ссылку",
+    "copied": "Скопировано"
   },
   "mistakes": {
     "title": "Тетрадь ошибок",
@@ -447,5 +452,32 @@
     "start": "Начать ({count})",
     "startTitle": "Повторение ошибок",
     "startNotice": "Сессия из {count} вопросов, в которых вы ошиблись"
+  },
+  "leaderboard": {
+    "title": "Рейтинг",
+    "subtitle": "Лучшие абитуриенты — по правильным ответам",
+    "rank": "Место",
+    "student": "Ученик",
+    "sessions": "Завершено",
+    "correct": "Верно",
+    "accuracy": "Точность",
+    "empty": "Рейтинга пока нет",
+    "emptyHint": "Станьте первым — завершайте экзамены!",
+    "join": "Регистрация",
+    "updated": "Обновляется после каждой завершённой сессии"
+  },
+  "history": {
+    "title": "История",
+    "subtitle": "Все сессии практики и экзаменов",
+    "filterAll": "Все",
+    "filterExam": "Экзамены",
+    "filterPractice": "Практика",
+    "subjectAll": "Все предметы",
+    "exportCsv": "Скачать CSV",
+    "empty": "Сессий пока нет",
+    "emptyHint": "Начните экзамен или практику — результаты появятся здесь",
+    "goExam": "Перейти к экзамену",
+    "count": "{count} сессий",
+    "results": "Результаты"
   }
 }

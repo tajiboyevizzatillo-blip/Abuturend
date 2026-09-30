@@ -32,6 +32,8 @@ const PUBLIC_PREFIXES = [
   "/achievements",
   // Public certificate verification (a verifier only has the printed serial).
   "/verify",
+  // Public leaderboard — no personal data, works for guests too.
+  "/leaderboard",
 ];
 
 function isPublicPath(pathname: string): boolean {

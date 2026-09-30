@@ -3,17 +3,8 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
-import { API_BASE } from "@/lib/api";
+import { fetchLeaderboard, type LeaderboardEntry } from "@/lib/leaderboard";
 import { Reveal } from "./reveal";
-
-type LeaderboardEntry = {
-  rank: number;
-  display_name: string;
-  finished_sessions: number;
-  correct_answers: number;
-  total_answered: number;
-  accuracy_percent: number;
-};
 
 const MEDALS: Record<number, { ring: string; text: string; label: string }> = {
   1: { ring: "from-amber-300 to-yellow-500", text: "text-amber-500", label: "🥇" },
@@ -27,9 +18,8 @@ export function Leaderboard() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_BASE}/leaderboard/`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
-      .then((data: LeaderboardEntry[]) => {
+    fetchLeaderboard()
+      .then((data) => {
         if (!cancelled) setEntries(Array.isArray(data) ? data : []);
       })
       .catch(() => {

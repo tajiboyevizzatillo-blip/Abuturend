@@ -141,6 +141,11 @@ export async function finishSession(sessionId: number): Promise<SessionReport> {
   });
 }
 
+/** Read-only review of a finished session (409 until it is finished). */
+export async function fetchReport(sessionId: number): Promise<SessionReport> {
+  return api<SessionReport>(`/sessions/${sessionId}/report/`);
+}
+
 export async function fetchSessionQuestions(
   sessionId: number
 ): Promise<SessionQuestion[]> {

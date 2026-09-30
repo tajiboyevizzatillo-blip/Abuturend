@@ -17,6 +17,20 @@ export default function VerifyCertificatePage() {
   const [cert, setCert] = useState<Certificate | null>(null);
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyLink = () => {
+    if (typeof window === "undefined") return;
+    navigator.clipboard
+      ?.writeText(window.location.href)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        /* clipboard unavailable (http) — silent */
+      });
+  };
 
   useEffect(() => {
     let ignore = false;
@@ -64,9 +78,14 @@ export default function VerifyCertificatePage() {
         <Link href="/" className="btn btn-secondary btn-sm">
           {t("back")}
         </Link>
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => window.print()}>
-          {t("print")}
-        </button>
+        <div className="flex gap-2">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={copyLink}>
+            {copied ? t("copied") : t("share")}
+          </button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => window.print()}>
+            {t("print")}
+          </button>
+        </div>
       </div>
 
       <div className="card relative overflow-hidden p-8 sm:p-10">
