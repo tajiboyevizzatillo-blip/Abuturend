@@ -103,6 +103,7 @@ export default function ProfilePage() {
   const t = useTranslations("auth");
   const common = useTranslations("common");
   const certT = useTranslations("cert");
+  const onbT = useTranslations("onboarding");
   const { user, refresh } = useAuth();
 
   const [passSaved, setPassSaved] = useState(false);
@@ -228,6 +229,21 @@ export default function ProfilePage() {
                   </Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{onbT("planSettingsTitle")}</CardTitle>
+              <CardDescription>{onbT("planSettingsHint")}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center gap-3">
+              <Link href="/onboarding" className="btn btn-secondary">
+                {onbT("rebuild")}
+              </Link>
+              <Link href="/dashboard" className="text-sm font-semibold text-primary hover:underline">
+                {onbT("todayTitle")}
+              </Link>
             </CardContent>
           </Card>
 

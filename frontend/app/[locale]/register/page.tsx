@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/components/providers/auth-provider";
 import { api, ApiError, extractFieldError, type CurrentUser } from "@/lib/api";
+import { fetchOnboardingStatus } from "@/lib/onboarding";
 import { Link } from "@/i18n/navigation";
 
 export default function RegisterPage() {
@@ -60,7 +61,15 @@ export default function RegisterPage() {
         }),
       });
       setUser(user);
-      router.replace("/dashboard");
+      // New student accounts go straight to the wizard so the plan exists from
+      // day one; teachers have no DTM study plan.
+      const onboarding =
+        user.role === "student"
+          ? await fetchOnboardingStatus()
+              .then((s) => s.needs_onboarding)
+              .catch(() => false)
+          : false;
+      router.replace(onboarding ? "/onboarding" : "/dashboard");
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && typeof err.detail === "object") {

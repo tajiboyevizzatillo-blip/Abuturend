@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/components/providers/auth-provider";
 import { api, ApiError, extractFieldError, type CurrentUser } from "@/lib/api";
+import { fetchOnboardingStatus } from "@/lib/onboarding";
 import { Link } from "@/i18n/navigation";
 
 export default function LoginPage() {
@@ -37,7 +38,16 @@ export default function LoginPage() {
         body: JSON.stringify(form),
       });
       setUser(user);
-      router.replace(next);
+      // A student who never finished the wizard lands there first; the auth
+      // gate would redirect anyway, so do it explicitly to avoid a flash of
+      // the requested page. The `next` target is intentionally dropped here.
+      const onboarding =
+        user.role === "student"
+          ? await fetchOnboardingStatus()
+              .then((s) => s.needs_onboarding)
+              .catch(() => false)
+          : false;
+      router.replace(onboarding ? "/onboarding" : next);
       router.refresh();
     } catch (err) {
       setError(

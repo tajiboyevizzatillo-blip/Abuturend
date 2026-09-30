@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchStatsSummary, type StatsSummary } from "@/lib/stats";
+import { fetchOnboardingPlan, type OnboardingPlan } from "@/lib/onboarding";
+import { TodayPlanCard } from "@/components/dashboard/today-plan-card";
 import { cn } from "@/lib/utils";
 
 function Flame({ size = 18 }: { size?: number }) {
@@ -64,6 +66,10 @@ export function DashboardClient() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [plan, setPlan] = useState<OnboardingPlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(true);
+  const [planError, setPlanError] = useState(false);
+
   const load = useCallback(() => {
     if (!user) return;
     fetchStatsSummary()
@@ -72,9 +78,21 @@ export function DashboardClient() {
       .finally(() => setLoading(false));
   }, [user, t]);
 
+  const loadPlan = useCallback(() => {
+    if (!user) return;
+    fetchOnboardingPlan()
+      .then(setPlan)
+      .catch(() => setPlanError(true))
+      .finally(() => setPlanLoading(false));
+  }, [user]);
+
   useEffect(() => {
     if (user) load();
   }, [load, user]);
+
+  useEffect(() => {
+    if (user) loadPlan();
+  }, [loadPlan, user]);
 
   const dateFmt = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short" });
   const maxDay = stats ? Math.max(1, ...stats.weekly_activity.map((d) => d.answered)) : 1;
@@ -163,6 +181,23 @@ export function DashboardClient() {
           </Link>
         </div>
       </div>
+
+      {/* Today's onboarding plan (independent of the stats request) */}
+      <TodayPlanCard
+        plan={plan}
+        loading={planLoading}
+        error={planError}
+        answeredToday={
+          stats?.weekly_activity.length
+            ? stats.weekly_activity[stats.weekly_activity.length - 1].answered
+            : 0
+        }
+        onRetry={() => {
+          setPlanError(false);
+          setPlanLoading(true);
+          loadPlan();
+        }}
+      />
 
       {loading || (authLoading && !stats) ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">

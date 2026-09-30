@@ -13,5 +13,6 @@ urlpatterns = [
     path("payments/", include("payments.urls")),
     path("gamification/", include("gamification.urls")),
     path("", include("universities.urls")),
+    path("onboarding/", include("onboarding.urls")),
     path("", api_root, name="api-root"),
 ]

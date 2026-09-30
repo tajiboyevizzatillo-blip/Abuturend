@@ -1,17 +1,34 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { CurrentUser, fetchUser } from "@/lib/api";
+import { fetchOnboardingStatus } from "@/lib/onboarding";
 
 interface AuthContextValue {
   user: CurrentUser | null;
   loading: boolean;
   refresh: () => Promise<void>;
   setUser: (user: CurrentUser | null) => void;
+  /** null = not checked yet, false = nothing to do. */
+  needsOnboarding: boolean | null;
+  /** Force a fresh status request (after the wizard is finished or rebuilt). */
+  recheckOnboarding: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+// While the wizard is pending these stay reachable: the wizard page itself, own
+// profile (to skip or rebuild the plan) and every public page (marketing,
+// catalog, public leaderboard, certificate verification). Everything personal --
+// dashboard, subjects practice, mock exams, history, results, achievements,
+// mistakes, teacher -- is gated, so the wizard is effectively mandatory without
+// making the public catalog unreachable for a brand-new student.
+const ONBOARDING_EXEMPT_PATHS = new Set(["/onboarding", "/profile"]);
+
+function isOnboardingExempt(pathname: string): boolean {
+  return ONBOARDING_EXEMPT_PATHS.has(pathname) || isPublicPath(pathname);
+}
 
 const PUBLIC_PATHS = new Set([
   "/",
@@ -52,6 +69,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
+  // True while the student still owes us the wizard; null = unknown.
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+  // Teachers and admins have no DTM study plan, so the wizard never applies.
+  const isStudent = user?.role === "student";
+
   const refresh = async () => {
     try {
       const u = await fetchUser();
@@ -88,8 +110,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.replace(`/login?next=${encodeURIComponent(pathname)}`);
   }, [loading, authChecked, user, pathname, router]);
 
+  // Onboarding gate: one status request per session, then the redirect.
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const loadOnboarding = useCallback(async () => {
+    try {
+      const status = await fetchOnboardingStatus();
+      setNeedsOnboarding(status.needs_onboarding);
+    } catch {
+      // Never trap the student on an error page because the status call failed.
+      setNeedsOnboarding(false);
+    } finally {
+      setOnboardingChecked(true);
+    }
+  }, []);
+
+  const checkOnboarding = useCallback(async () => {
+    if (!user || !isStudent) return;
+    await loadOnboarding();
+  }, [user, isStudent, loadOnboarding]);
+
+  useEffect(() => {
+    if (!user || !isStudent || onboardingChecked) return;
+    let active = true;
+    // Mirrors the auth fetch above: the state updates land in the promise
+    // callbacks, never synchronously in the effect body.
+    fetchOnboardingStatus()
+      .then((status) => {
+        if (active) setNeedsOnboarding(status.needs_onboarding);
+      })
+      .catch(() => {
+        if (active) setNeedsOnboarding(false);
+      })
+      .finally(() => {
+        if (active) setOnboardingChecked(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user, isStudent, onboardingChecked]);
+
+  useEffect(() => {
+    if (!user || !needsOnboarding) return;
+    if (isOnboardingExempt(pathname)) return;
+    router.replace("/onboarding");
+  }, [user, needsOnboarding, pathname, router]);
+
+  const setUserAndCheckOnboarding = useCallback(
+    (u: CurrentUser | null) => {
+      setUser(u);
+      // Fresh login/register: re-evaluate the gate for the new identity.
+      setOnboardingChecked(false);
+      setNeedsOnboarding(null);
+    },
+    [setUser]
+  );
+
   return (
-    <AuthContext.Provider value={{ user, loading, refresh, setUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        refresh,
+        setUser: setUserAndCheckOnboarding,
+        needsOnboarding,
+        recheckOnboarding: checkOnboarding,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

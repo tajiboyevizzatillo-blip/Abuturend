@@ -17,6 +17,8 @@ from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
+from catalog.models import Subject
+
 logger = logging.getLogger(__name__)
 
 _API = "https://api.telegram.org/bot{token}/{method}"
@@ -130,6 +132,46 @@ def new_user_text(user):
         f"\U0001f3c5 Rol: {html_escape(user.get_role_display())}\n"
         f"\U0001f550 {timezone.localtime(user.date_joined):%d.%m.%Y %H:%M}"
     )
+
+
+def onboarding_completed_text(profile):
+    """Qisqa xabar: abituriyent onboarding wizard'ni tugatdi va reja oldi."""
+    user = profile.user
+    plan = profile.plans.order_by("-id").first()
+    name = user.get_full_name() or user.username
+    direction = profile.direction.name_uz if profile.direction_id else "belgilanmagan"
+    subjects = ", ".join(s.name_uz for s in profile.subjects.all()[:4])
+    if profile.subjects.count() > 4:
+        subjects += "..."
+    level_labels = {"beginner": "boshlang'ich", "middle": "o'rta", "high": "yuqori"}
+    level = level_labels.get(profile.level, profile.level)
+    exam = profile.exam_date.isoformat() if profile.exam_date else "belgilanmagan"
+    if plan is None:
+        plan_line = ""
+    else:
+        weak_names = [
+            s.name_uz for s in Subject.objects.filter(id__in=plan.weak_subject_ids or [])
+        ]
+        weak_text = ", ".join(weak_names) if weak_names else "yo'q"
+        plan_line = (
+            f"\n\U0001f4d8 Reja: <b>{plan.total_questions}</b> ta savol / "
+            f"{len(plan.days)} kun"
+            f"\n\U0001f6a8 Zaif fanlar: {html_escape(weak_text)}"
+        )
+    return (
+        "<b>\U0001f9ed Onboarding tugallandi</b>\n\n"
+        f"\U0001f464 Foydalanuvchi: <b>{html_escape(name)}</b>\n"
+        f"\U0001f3af Yo'nalish: {html_escape(direction)}\n"
+        f"\U0001f4da Fanlar: {html_escape(subjects or '-')}\n"
+        f"\U0001f4c5 Imtihon: <b>{exam}</b>\n"
+        f"\u23f1 Kunlik vaqt: <b>{profile.daily_minutes}</b> daqiqa\n"
+        f"\U0001f3c3 Daraja: {html_escape(level)}"
+        f"{plan_line}"
+    )
+
+
+def send_onboarding_completed(profile):
+    return send_message(onboarding_completed_text(profile))
 
 
 def question_submitted_text(question):
