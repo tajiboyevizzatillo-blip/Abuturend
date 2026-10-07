@@ -10,6 +10,9 @@ venv/
 db.sqlite3
 /backend/staticfiles/
 /backend/media/
+# PostgreSQL dumplari — GitHub'ga REST API kalitlari bilan birga
+# chiqib ketmasligi uchun (Render deploy uchun repo ochiladi).
+/backend/db-backups/
 
 # Node
 node_modules/
@@ -18,14 +21,34 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
-# Env
-.env.local
-.env.production
+# Env — every variant except the committed template, so a .env.development or
+# .env.staging holding real keys cannot be committed by accident.
+.env*
+!.env.example
+
+# Certificates and private keys
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+id_rsa*
+id_ed25519*
 
 # Logs
 *.log
 start*.log
 *build-log*.txt
+
+# Captured test-runner output (`manage.py test > out.txt`).
+# Scoped with a suffix rather than a loose prefix like `b*.txt`, which would
+# silently ignore any root-level file starting with "b".
+*-out.txt
+*-test.txt
+*-final.txt
+*-check.txt
+*-*.txt
+baseline-test.txt
 
 # OS / Editor
 .DS_Store

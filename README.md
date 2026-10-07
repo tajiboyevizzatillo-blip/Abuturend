@@ -133,9 +133,45 @@ cp .env.example .env   # keyin kerakli qiymatlarni o'zgartiring
 docker compose up -d --build
 ```
 
-`docker compose` `MCP_API_KEY` ni talab qiladi — `.env` da belgilanmagan bo'lsa
-stack ishga tushmaydi. Qo'shimchacha, PostgreSQL o'zi `POSTGRES_DB` orqali
-yaratiladi; qo'lda o'rnatish uchun `psql -U postgres -f setup_db.sql`.
+`docker compose` uchta majburiy o'zgaruvchini talab qiladi — `.env` da
+belgilanmagan bo'lsa stack **ishga tushmaydi** (boshlang'ich qiymat bilan
+ishlaydigan qilib yozish xavfsiz emas, shuning uchun qat'iy talab qo'yilgan):
+
+```bash
+cp .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(48))"   # 3 marta
+# .env ga qo'ying:
+#   DJANGO_SECRET_KEY=<birinchi>
+#   POSTGRES_PASSWORD=<ikkinchi>
+#   MCP_API_KEY=<uchinchi>
+docker compose up -d --build
+```
+
+| O'zgaruvchi | Nima uchun |
+| ----------- | ---------- |
+| `DJANGO_SECRET_KEY` | Sessiya cookie va imzo kalitlari. `DEBUG=False` da bo'sh yoki `change-me-in-production` kabi o'rinbosar qiymat bilan Django **o'zi rad etadi** (`ImproperlyConfigured`). |
+| `POSTGRES_PASSWORD` | Ma'lumotlar bazasi kaliti. |
+| `MCP_API_KEY` | MCP bridge kaliti (bo'sh bo'lsa barcha so'rov 503 bilan rad etiladi). |
+
+Qo'shimcha, PostgreSQL o'zi `POSTGRES_DB` orqali yaratiladi; qo'lda o'rnatish
+uchun `psql -U postgres -f setup_db.sql`.
+
+### 3.1. TLS sertifikat (Let's Encrypt)
+
+`nginx` `certbot-certs` volume'dan sertifikatni **yagona marta** (startup'da)
+o'qiydi. `certbot` servisi shu volume'ni yozadi va har 12 soatda yangilanishni
+tekshiradi, yangilangan zahoti `nginx -s reload` qiladi — aks holda yangilangan
+sertifikat ishlashda bo'lib qolardi.
+
+Birinchi marta (`.env` tayyor bo'lgandan keyin):
+
+```bash
+docker compose run --rm certbot certonly --webroot \
+  -w /var/www/certbot -d abituriyent.orgtrace.uz
+docker compose up -d
+```
+
+Sertifikat olinmagandan oldin `nginx` `:443` ni yoqa olmaydi.
 
 ## Onboarding (3 qadam + 7 kunlik reja)
 
@@ -180,7 +216,9 @@ MCP HTTP transporti ochiq emas — har bir sorov `Authorization` header talab qi
 | `MCP_ADMIN_API_KEY` | Hammasi, jumladan `include_answers=true` (javob kaliti) |
 
 ```bash
-curl -H "Authorization: Bearer $MCP_API_KEY" http://localhost:8001/mcp/
+# `mcp` servisi faqat `expose` qilingan (port publish qilinmagan), ya'ni
+# localhost orqali emas, faqat nginx orqali murojaat qilinadi:
+curl -H "Authorization: Bearer $MCP_API_KEY" https://abituriyent.orgtrace.uz/mcp/
 ```
 
 - `MCP_API_KEY` bo'lmagan/yoki bo'sh bo'lsa — **barcha** sorovlar 503 bilan
@@ -198,17 +236,25 @@ Serverda:
 git clone <repo-url> abiturend
 cd abiturend
 cp .env.example .env
-# .env ichida DJANGO_SECRET_KEY, POSTGRES_PASSWORD va domenlarni o'rnating
+# .env ichida DJANGO_SECRET_KEY, POSTGRES_PASSWORD va MCP_API_KEY ni
+# generatsiya qiling (yuqoridagi 3. bo'limga qarang), domenlarni o'rnating
+docker compose run --rm certbot certonly --webroot -w /var/www/certbot -d abituriyent.orgtrace.uz
 docker compose up -d --build
 ```
 
-Nginx `nginx/nginx.conf` reverse-proxy sifatida `frontend:3000` ga yo'naltiradi;
-HTTPS Let's Encrypt orqali yoki yuqori qatlamda qo'shiladi.
+Nginx `nginx/nginx.conf` reverse-proxy sifatida `frontend:3000` ga yo'naltiradi va
+TLS'ni **o'zi** yakunlaydi (yuqoridagi 3.1 bo'lim: `certbot` sertifikatsiyani
+yangilab turadi). Alohida yuqori qatlam yoki boshqa TLS proxy kerak emas.
 
 ### Avtomatik deploy (CI/CD)
 
-`.github/workflows/deploy.yml` — `main` branch'ga push bo'lganida avtomatik
-deploy'laydi. GitHub repo settings → Secrets and variables → Actions:
+`.github/workflows/verify.yml` — har bir PR va `main` push'ida backend testlari,
+`check`, migratsiya tekshiruvi, frontend lint/typecheck/build va
+`docker compose config` ishlaydi.
+
+`.github/workflows/deploy.yml` — `verify` **o'tgan** bo'lishi sharti bilan
+`main` ga push bo'lganda deploy qiladi (job bog'liqligi orqali).
+GitHub repo settings → Secrets and variables → Actions:
 
 | Secret            | Tavsif                                  |
 | ----------------- | --------------------------------------- |
@@ -217,7 +263,11 @@ deploy'laydi. GitHub repo settings → Secrets and variables → Actions:
 | `DEPLOY_PORT`     | SSH port (ixtiyoriy, default `22`)      |
 | `DEPLOY_SSH_KEY`  | Serverdagi `~/.ssh/authorized_keys` ga qo'yilgan **private** SSH key |
 
-Oqim avtomatik: pull → build → migrate → collectstatic → webhook o'rnatish.
+Oqim avtomatik: verify (test+lint+build) → pull → build → `up --wait`
+(migratsiya va `collectstatic --clear` backend konteynerining o'z CMD'sida
+ishlaydi, shuning uchun ikki marta ishlamaydi) → `seed_catalog`,
+`seed_universities`, `seed_premium`, `seed_badges` → Telegram webhook →
+`/api/health/` bilan tekshirish.
 
 ### Monitoring
 
@@ -233,6 +283,124 @@ Kunlik statistika (har kuni 09:00):
 ```text
 0 9 * * * root docker exec $(docker ps -qf name=abiturend-backend) python manage.py tg_stats
 ```
+
+## Render.com deploy (Docker'siz, bepul PaaS)
+
+Render'da nginx, Docker va server kerak emas: Python runtime'i `backend/`
+papkasini root directory sifatida oladi, `build.sh` ni bajaradi va gunicorn'ni
+ishga tushiradi. Statik fayllarni WhiteNoise, bazani `DATABASE_URL` boshqaradi.
+
+### 1. PostgreSQL bazasi
+
+**New + → PostgreSQL** → Name: `abiturend-db`, Region: **Frankfurt**
+(O'zbekistonga eng yaqinlardan biri), Plan: **Free** → **Create Database**.
+
+Baza tayyor bo'lgach **Connections → Internal Database URL** (`postgres://...`)
+ni nusxalang — u keyingi qadamdagi `DATABASE_URL` bo'ladi.
+
+`settings.py` `dj-database-url` orqali shu URL'ni o'qiydi va `sslmode=require`
+ni o'zi qo'shadi. Shu sababli `POSTGRES_DB/USER/PASSWORD/HOST/PORT` kiritish
+shart emas — `DATABASE_URL` bo'lsa ular e'tiborsiz.
+
+### 2. Backend (Web Service)
+
+**New + → Web Service → Build and deploy from a Git repository** → repozitoriyani
+tanlang (Render birinchi marta GitHub App'ni ulashni so'raydi).
+
+| Parametr             | Qiymat                                                              |
+| -------------------- | ------------------------------------------------------------------- |
+| Name                 | `abiturend-api`                                                     |
+| Region               | **Frankfurt** (baza bilan aynan bir xil hudud!)                     |
+| Branch               | `main`                                                              |
+| Runtime              | Python                                                              |
+| **Root Directory**   | `backend`                                                           |
+| **Build Command**    | `bash build.sh`                                                     |
+| **Start Command**    | `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 2 --timeout 60 --access-logfile - --error-logfile -` |
+| Instance Type        | Free                                                                |
+| Health Check Path    | `/` (root `core.health` ni chaqiradi, DB talab qilmaydi)            |
+
+Ikkita muhim nuqta:
+
+- **Root Directory = `backend`** — `manage.py`, `requirements.txt` va
+  `build.sh` shu yerda. Shuning uchun start command ichida modul nomi
+  `config.wsgi:application` (ichki papka `config/`), loyiha nomi emas.
+- **`bash build.sh`** — `./build.sh` emas: Windows/Git oddiy faylga
+  bajarish huquqini yozmaydi, `bash` esa har doim ishlaydi.
+
+`build.sh` ketma-ket: `pip install` → `collectstatic` → `migrate` →
+`seed_catalog` / `seed_universities` / `seed_premium` / `seed_badges`.
+Seed'lar idempotent va **majburiy** — ularsiz fanlar, tariflar va nishonlar
+bo'sh chiqadi. Xatolikda build to'xtaydi, eski versiya ishlayveradi.
+
+### 3. Muhit o'zgaruvchilari (Environment)
+
+| Kalit                          | Qiymat / izoh                                              |
+| ------------------------------ | ---------------------------------------------------------- |
+| `PYTHON_VERSION`               | `3.14.3` (yangi servislar uchun Render default'i)          |
+| `DJANGO_SECRET_KEY`            | `python -c "import secrets; print(secrets.token_urlsafe(50))"` |
+| `DATABASE_URL`                 | 1-qadamdagi **Internal Database URL**                      |
+| `DJANGO_ALLOWED_HOSTS`         | `abiturend-api.onrender.com` (default `.onrender.com` ham) |
+| `DJANGO_CSRF_TRUSTED_ORIGINS`  | ixtiyoriy — default `https://*.onrender.com` qamrab oladi  |
+| `FRONTEND_BASE_URL`            | frontend domeni (parol tiklash havolalari uchun)           |
+| `DJANGO_SECURE_HSTS_SECONDS`   | `31536000`                                                 |
+| `MCP_API_KEY` / `MCP_ADMIN_API_KEY` | ixtiyoriy, `.env.example` dagidek (bo'sh = MCP yopiq)  |
+
+> Umumiy qo'llanmadagi `SECRET_KEY` va `DEBUG` kalitlari shu loyihada
+> **`DJANGO_SECRET_KEY`** va **`DJANGO_DEBUG`** deb ataladi. `DJANGO_DEBUG`
+> umuman qo'yilmasa `DEBUG=False` (gunicorn/runserver'da default shunday).
+
+Qolgan integratsiyalar (`TELEGRAM_*`, `PAYME_*`, `CLICK_*`, email) nomlari
+o'zgarmagan — `.env.example` dagi kalitlar aynan Render Environment bo'limiga
+ham kiritiladi.
+
+### 4. Superuser (admin panel)
+
+Servis birinchi marta deploy bo'lgach → chap menyudan **Shell**:
+
+```bash
+python manage.py createsuperuser
+```
+
+Root Directory `backend` bo'lgani uchun buyruq shu papkada bajariladi.
+Admin: `https://abiturend-api.onrender.com/admin/`.
+
+### 5. Frontend (Next.js) — ikkinchi Web Service
+
+| Parametr             | Qiymat                                    |
+| -------------------- | ----------------------------------------- |
+| Name                 | `abiturend-frontend`                      |
+| Region               | Frankfurt                                 |
+| Root Directory       | `frontend`                                |
+| Build Command        | `npm run build`                           |
+| Start Command        | `npm start`                               |
+| Instance Type        | Free                                      |
+
+Environment:
+
+| Kalit                  | Qiymat                                   |
+| ---------------------- | ---------------------------------------- |
+| `NODE_VERSION`         | `24`                                     |
+| `BACKEND_URL`          | `https://abiturend-api.onrender.com`     |
+| `NEXT_PUBLIC_API_URL`  | `/api`                                   |
+
+`BACKEND_URL` **build vaqtida** o'qiladi (Next rewrites'ni
+`.next/routes-manifest.json` ga yozadi), shuning uchun uni o'zgartirgandan
+keyin Manual Deploy → **Clear build cache & deploy** qiling. Natijada brauzer
+`/api` ga o'zi murojaat qiladi, Next esa server tomonidan backend'ga proxy
+qiladi — CORS va cookie sozlamalari umuman kerak bo'lmaydi (bir xil origin).
+
+Push'dan keyin Render har ikkisini avtomatik qayta deploy qiladi.
+
+### Cheklovlar
+
+- **Media fayllar** (`media/avatars/`) vaqtinchalik diskda saqlanadi —
+  redeploy'da yo'qoladi. Doimiy rasm uchun S3/Cloudinary kabi tashqi saqlash
+  kerak (hozircha faqat avatar ishlatiladi).
+- Bepul plan: servis traffic'siz **uxlaydi** (birinchi so'rov sekin),
+  bepul Postgres esa faolliksiz ma'lum muddatdan keyin o'chirilishi mumkin —
+  muntazam foydalaniladigan loyiha uchun kichik pulik plan yoki ping kerak.
+- Telegram webhook qo'lda ro'yxatdan o'tkaziladi:
+  `python manage.py tg_set_webhook --url https://abiturend-api.onrender.com/webhooks/telegram/`
 
 ## Zaif mavzular radari (Weak-skill radar)
 
@@ -277,7 +445,7 @@ TELEGRAM_LINKED_USER=         # /weak buyrug'i uchun bog'langan hisob (username 
 ## Status
 
 - PHASE 1 (Foundation): ✅ backend check + migratsiya + health / frontend build + lint + i18n + landing
-- PHASE 2 (Authentication): ✅ session-based auth (register/login/logout/me/change-password/csrf), 7 test PASS, protected pages; parolni tiklash: `POST /api/auth/forgot-password/` (token emailga) + `POST /api/auth/reset-password/` (yangi parol, token bir martalik), `/forgot-password` va `/reset-password` sahifalari
+- PHASE 2 (Authentication): ✅ session-based auth (register/login/logout/me/change-password/csrf), 7 test PASS, protected pages; parolni tiklash: `POST /api/auth/password-reset/` (token emailga) + `POST /api/auth/password-reset/confirm/` (yangi parol, token bir martalik), `/forgot-password` va `/reset-password` sahifalari
 - PHASE 3 (Subjects/Topics): ✅ Subject/Topic/Subtopic modellari + API + admin + seed_catalog (13 DTM fani), 7 test PASS, subjects ro'yxati + detail sahifalari
 - PHASE 4 (Question bank): ✅ Question/QuestionOption modellari, o'qituvchi CRUD + student browse (javobsiz), difficulty/explanation/source_type, 7 test PASS, teacher/questions panel, 21 umumiy backend test
 - PHASE 5 (Practice engine): ✅ `practice` app — practice/exam session, immediate feedback + explanation, finish report; 8 test PASS; PracticePlayer (klaviatura qo'llab-quvvatlash A–D/Enter, streak, score ring)
@@ -297,7 +465,7 @@ TELEGRAM_LINKED_USER=         # /weak buyrug'i uchun bog'langan hisob (username 
   - Reja bandlari to'g'ridan-to'g'ri mashqni ochadi: `/subjects/{slug}/practice?topic=&count=`
   - Telegram: bot sozlanganda adminga qisqa xabar (sozlanmagan bo'lsa jimgina)
 - PHASE 14 (Zaif mavzular radari): ✅ `practice/weak_skills.py` — fan va mavzu bo'yicha aniqlik (aggregat, alohida jadvalsiz), kamida 5 javob qoidasi, 60% zaif chegarasi (env bilan sozlanadi); `GET /api/weak-skills/`, `GET /api/weak-skills/<fan>/`, `POST /api/weak-skills/practice/`; `/[locale]/weak-skills` sahifasi (SVG radar, fan kesimi, zaif mavzular + mashq, PRO CTA), `/mistakes` dan havola, dashboard `WeakTopicCard`, Telegram `/weak`; 19 test PASS
-- Backend test: **234/234 PASS** (accounts 16, catalog 12, core 4, gamification 6, mcpbridge 26, onboarding 24, payments 29, practice 64, premium 9, questions 22, telegrambot 10, universities 9)
+- Backend test: **272/272 PASS** (accounts 16, catalog 12, core 10, gamification 6, mcpbridge 26, onboarding 24, payments 32, practice 71, premium 23, questions 29, telegrambot 14, universities 9)
 - Frontend: ✅ `npm run lint` toza, `npm run build` muvaffaqiyatli (63 sahifa); uz/ru/en tarjimalar teng, `/premium` + `/premium/payment/[id]` + `/achievements` + `/reset-password` + `/certificates` + `/verify/[serial]` + `/mistakes` + `/weak-skills` + `/history` + `/leaderboard` + `/results/[id]` + `/onboarding` routelari
 - Landing: ✅ 3 ta theme-aware SVG illyustratsiya, aurora/grid hero, scroll reveal
 - API indeks: ✅ `GET /api/` — barcha endpointlar katalogi (resolve testi bilan himoyalangan); security header'lar (CSP/RP/Permissions-Policy)
