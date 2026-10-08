@@ -19,7 +19,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 # 127.0.0.1:8000 *inside this container* and every server-side /api request
 # fails with ECONNREFUSED. nginx masks this in production by intercepting /api/
 # before the request reaches Next, which is exactly why it goes unnoticed.
-ARG BACKEND_URL=http://backend:8000
+ARG BACKEND_URL=https://abuturend.onrender.com
 ENV BACKEND_URL=$BACKEND_URL
 # Cap Next.js build heap so low-RAM VPS stays responsive (SSH/web) during builds
 ENV NODE_OPTIONS=--max-old-space-size=1024
