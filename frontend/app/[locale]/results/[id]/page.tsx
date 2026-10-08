@@ -25,7 +25,12 @@ export default function ResultsPage() {
 
   const [report, setReport] = useState<SessionReport | null>(null);
   const [missing, setMissing] = useState(false);
+  // 409 = the session exists but is still running (or was abandoned): the
+  // report is deliberately withheld until it is finished, so "not found" would
+  // be a lie.
+  const [notFinished, setNotFinished] = useState(false);
   const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [certStyle, setCertStyle] = useState<CertificateStyle | null>(null);
   const [certError, setCertError] = useState<string | null>(null);
 
@@ -38,16 +43,19 @@ export default function ResultsPage() {
       })
       .catch((e) => {
         if (ignore) return;
-        if (e instanceof ApiError && (e.status === 404 || e.status === 409)) {
+        if (e instanceof ApiError && e.status === 404) {
           setMissing(true);
+        } else if (e instanceof ApiError && e.status === 409) {
+          setNotFinished(true);
         } else {
+          // Network/5xx are transient: the retry button re-runs the effect.
           setError(true);
         }
       });
     return () => {
       ignore = true;
     };
-  }, [id, validId]);
+  }, [id, validId, attempt]);
 
   const issueCertificate = (style: CertificateStyle) => {
     if (!report || certStyle) return;
@@ -66,9 +74,40 @@ export default function ResultsPage() {
       <ProtectedShell>
         <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center gap-4 px-4 py-16 sm:px-6">
           <Alert variant="danger">{common("error")}</Alert>
-          <Button variant="secondary" onClick={() => router.back()}>
-            {common("back")}
-          </Button>
+          <div className="flex gap-3">
+            <Button
+              variant="primary"
+              onClick={() => {
+                setError(false);
+                setMissing(false);
+                setNotFinished(false);
+                setAttempt((k) => k + 1);
+              }}
+            >
+              {common("retry")}
+            </Button>
+            <Button variant="secondary" onClick={() => router.back()}>
+              {common("back")}
+            </Button>
+          </div>
+        </div>
+      </ProtectedShell>
+    );
+  }
+
+  if (notFinished) {
+    return (
+      <ProtectedShell>
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center gap-4 px-4 py-16 sm:px-6">
+          <Alert variant="warning">{t("notFinished")}</Alert>
+          <div className="flex gap-3">
+            <Button variant="secondary" onClick={() => router.push("/history")}>
+              {exam("history")}
+            </Button>
+            <Button variant="ghost" onClick={() => router.back()}>
+              {common("back")}
+            </Button>
+          </div>
         </div>
       </ProtectedShell>
     );
@@ -180,7 +219,7 @@ export default function ResultsPage() {
                 onClick={() => issueCertificate("international")}
                 disabled={certStyle !== null}
               >
-                {exam("certInternational")}
+                {certStyle === "international" ? common("loading") : exam("certInternational")}
               </button>
               <button
                 type="button"
@@ -188,7 +227,7 @@ export default function ResultsPage() {
                 onClick={() => issueCertificate("local")}
                 disabled={certStyle !== null}
               >
-                {exam("certLocal")}
+                {certStyle === "local" ? common("loading") : exam("certLocal")}
               </button>
             </div>
           </div>

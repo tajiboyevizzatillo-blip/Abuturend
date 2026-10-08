@@ -1,7 +1,7 @@
-import { api } from "./api";
+import { ApiError, api } from "./api";
 
 export type SessionMode = "practice" | "exam";
-export type SessionStatus = "in_progress" | "finished";
+export type SessionStatus = "in_progress" | "finished" | "abandoned";
 
 export interface SessionOption {
   id: number;
@@ -144,6 +144,23 @@ export async function finishSession(sessionId: number): Promise<SessionReport> {
 /** Read-only review of a finished session (409 until it is finished). */
 export async function fetchReport(sessionId: number): Promise<SessionReport> {
   return api<SessionReport>(`/sessions/${sessionId}/report/`);
+}
+
+/**
+ * Give up on an in-progress session without scoring it.
+ *
+ * Distinct from finishSession: an abandoned attempt produces no score, no
+ * report and no badges. The daily quota slot is still spent — the questions
+ * were already served when the session was created.
+ */
+export async function abandonSession(sessionId: number): Promise<void> {
+  // 409 means the session was already finished server-side (a race with the
+  // auto-finish), which is the desired end state either way.
+  try {
+    await api(`/sessions/${sessionId}/abandon/`, { method: "POST" });
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 409) throw e;
+  }
 }
 
 export async function fetchSessionQuestions(

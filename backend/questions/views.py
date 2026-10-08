@@ -35,7 +35,16 @@ class QuestionViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         user = self.request.user
         if user.is_staff or user.role in ("teacher", "admin"):
-            return qs.prefetch_related("options")
+            qs = qs.prefetch_related("options")
+            if not (user.is_staff or user.is_superuser or user.role == "admin"):
+                # Plain teachers manage only their own rows: their drafts plus
+                # everything already published. Imported questions with no
+                # author (created_by is NULL) stay visible read-only, and
+                # has_object_permission rejects writes to them.
+                qs = qs.filter(
+                    Q(created_by=user) | Q(status=Question.Status.PUBLISHED)
+                )
+            return qs
         return qs.filter(
             Q(is_active=True), Q(status=Question.Status.PUBLISHED)
         ).prefetch_related("options")

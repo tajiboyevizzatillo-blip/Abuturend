@@ -24,12 +24,18 @@ def user_stats(user):
     total_answered = answers.filter(selected_option__isnull=False).count()
 
     # Streak: consecutive days with a finished session, ending today or yesterday.
-    dates = {
-        timezone.localtime(s.finished_at).date()
-        for s in finished
-        if s.finished_at is not None
-    }
+    # TruncDate+DISTINCT lets the database return one row per active day instead
+    # of shipping every finished session's timestamp to Python (the streak walk
+    # only needs the day set, and a long-history student had thousands of rows).
+    from django.db.models.functions import TruncDate
+
     today = timezone.localdate()
+    dates = set(
+        finished.filter(finished_at__isnull=False)
+        .annotate(day=TruncDate("finished_at"))
+        .values_list("day", flat=True)
+        .distinct()
+    )
     streak = 0
     cursor = today
     if cursor not in dates:

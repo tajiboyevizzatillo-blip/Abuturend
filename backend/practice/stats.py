@@ -1,6 +1,7 @@
 from datetime import timedelta
 
-from django.db.models import Count, Max, Q, Sum
+from django.db.models import Case, Count, IntegerField, Max, Q, Sum, Value, When
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -19,17 +20,26 @@ PUBLISHED_ACTIVE = Q(is_active=True) & Q(status=Question.Status.PUBLISHED)
 
 class StatsSummaryView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_scope = "stats"
 
     def get(self, request):
         user = request.user
         finished_qs = PracticeSession.objects.filter(
             user=user, status=PracticeSession.Status.FINISHED
         ).select_related("subject", "topic")
-        finished = list(finished_qs)
 
-        total_questions = sum(s.question_count for s in finished)
-        answered = sum((s.correct_answers + s.incorrect_answers) for s in finished)
-        correct = sum(s.correct_answers for s in finished)
+        # Totals and the distinct finished-day list come from the database.
+        # This view used to pull every finished session into Python and sum it
+        # on each dashboard load, so a power user with thousands of sessions
+        # paid that cost on every request.
+        totals = finished_qs.aggregate(
+            total_questions=Sum("question_count"),
+            correct=Sum("correct_answers"),
+            incorrect=Sum("incorrect_answers"),
+        )
+        total_questions = totals["total_questions"] or 0
+        correct = totals["correct"] or 0
+        answered = correct + (totals["incorrect"] or 0)
 
         accuracy = round(correct / answered * 100) if answered else 0
         current_score = (
@@ -67,12 +77,15 @@ class StatsSummaryView(APIView):
             for row in by_subject
         ]
 
-        # Streak: consecutive days (ending today or yesterday) with a finished session
-        dates = {
-            timezone.localtime(s.finished_at).date()
-            for s in finished
-            if s.finished_at is not None
-        }
+        # Streak: consecutive days (ending today or yesterday) with a finished
+        # session. Distinct dates are read straight from the database rather
+        # than derived from a materialised session list.
+        dates = set(
+            finished_qs.filter(finished_at__isnull=False)
+            .annotate(day=TruncDate("finished_at"))
+            .values_list("day", flat=True)
+            .distinct()
+        )
         today = timezone.localdate()
         streak = 0
         cursor = today
@@ -85,21 +98,34 @@ class StatsSummaryView(APIView):
         # Weekly activity (last 7 days, including today)
         week_start = today - timedelta(days=6)
         activity = {week_start + timedelta(days=i): [0, 0] for i in range(7)}
-        week_answers = (
+        # Bucketed in SQL instead of iterating every answer of the week in Python.
+        # SUM(is_correct) is not valid on Postgres (boolean), so the CASE form is
+        # used, matching practice/weak_skills.py.
+        week_rows = (
             PracticeAnswer.objects.filter(
                 session__user=user,
                 session__status=PracticeSession.Status.FINISHED,
-                session__finished_at__date__gte=week_start,
+                answered_at__date__gte=week_start,
                 selected_option__isnull=False,
             )
-            .select_related("session")
+            .annotate(day=TruncDate("answered_at"))
+            .values("day")
+            .annotate(
+                answered=Count("id"),
+                correct=Sum(
+                    Case(
+                        When(is_correct=True, then=Value(1)),
+                        default=Value(0),
+                        output_field=IntegerField(),
+                    )
+                ),
+            )
         )
-        for answer in week_answers:
-            day = timezone.localtime(answer.answered_at).date()
+        for row in week_rows:
+            day = row["day"]
             if day in activity:
-                activity[day][0] += 1
-                if answer.is_correct:
-                    activity[day][1] += 1
+                activity[day][0] = row["answered"]
+                activity[day][1] = row["correct"] or 0
         weekly_activity = [
             {
                 "date": day.isoformat(),
@@ -140,11 +166,13 @@ class StatsSummaryView(APIView):
             if row["question__topic"] in topic_names
         ]
 
-        recent = sorted(finished, key=lambda s: s.started_at, reverse=True)[:5]
+        # Only the five most recent sessions are serialized — the full history
+        # is not needed here and does not need to be loaded at all.
+        recent = list(finished_qs.order_by("-started_at")[:5])
         recent_sessions = SessionListSerializer(recent, many=True).data
 
         payload = {
-            "total_finished": len(finished),
+            "total_finished": finished_qs.count(),
             "total_questions": total_questions,
             "total_answered": answered,
             "accuracy": accuracy,
@@ -168,11 +196,17 @@ class MistakesView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_scope = "stats"
 
     @staticmethod
     def _mistake_filter(user):
+        # Only finished sessions count. An abandoned attempt (crash, closed
+        # tab) left answers behind that inflated `total`/`wrong` and could never
+        # be cleared, contradicting both this view's own docstring and the
+        # sibling weak-skill aggregate, which does filter on FINISHED.
         return PracticeAnswer.objects.filter(
             session__user=user,
+            session__status=PracticeSession.Status.FINISHED,
             is_correct=False,
             question__is_active=True,
             question__status=Question.Status.PUBLISHED,

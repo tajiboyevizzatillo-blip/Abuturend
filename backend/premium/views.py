@@ -12,6 +12,7 @@ from .serializers import (
 from .services import (
     activate_plan,
     active_subscription,
+    is_premium,
     remaining_sessions_today,
 )
 
@@ -28,18 +29,21 @@ class SubscriptionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        # One subscription lookup, reused by all three fields: it used to run
+        # four queries (active_subscription twice + is_premium + limit).
         sub = active_subscription(request.user)
         return Response(
             {
-                "is_premium": sub is not None,
+                "is_premium": is_premium(request.user, sub),
                 "plan": ActivePlanSerializer(sub).data if sub else None,
-                "remaining_sessions_today": remaining_sessions_today(request.user),
+                "remaining_sessions_today": remaining_sessions_today(request.user, sub),
             }
         )
 
 
 class SubscribeView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_scope = "checkout"
 
     def post(self, request):
         serializer = SubscribeSerializer(data=request.data)
@@ -50,6 +54,21 @@ class SubscribeView(APIView):
         # gateway: POST /api/payments/checkout/ returns a Payme/Click payment
         # URL and the webhook activates the subscription once money arrives.
         if plan.tier == SubscriptionPlan.Tier.FREE or plan.price_uzs == 0:
+            # Idempotent: activate_plan stacks a new row on top of the current
+            # end date, so looping this endpoint built an arbitrarily long
+            # chain of subscriptions and made the entitlement effectively
+            # permanent. Re-subscribe instead of stacking when already active.
+            existing = active_subscription(request.user)
+            if existing is not None and existing.plan_id == plan.pk:
+                return Response(
+                    {
+                        "is_premium": is_premium(request.user),
+                        "plan": ActivePlanSerializer(existing).data,
+                        "remaining_sessions_today": remaining_sessions_today(request.user),
+                        "already_subscribed": True,
+                    },
+                    status=status.HTTP_200_OK,
+                )
             activate_plan(request.user, plan)
         else:
             return Response(
@@ -64,9 +83,10 @@ class SubscribeView(APIView):
         sub = active_subscription(request.user)
         return Response(
             {
-                "is_premium": True,
+                "is_premium": is_premium(request.user),
                 "plan": ActivePlanSerializer(sub).data if sub else None,
                 "remaining_sessions_today": remaining_sessions_today(request.user),
+                "already_subscribed": False,
             },
             status=status.HTTP_201_CREATED,
         )

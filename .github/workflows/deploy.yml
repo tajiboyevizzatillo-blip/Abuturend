@@ -5,39 +5,59 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege: the deploy job only ever reads the repository.
+permissions:
+  contents: read
+
 concurrency:
   group: deploy
-  cancel-in-progress: true
-
-# NOTE: cancel-in-progress only stops the runner job, NOT remote SSH commands
-# already running on the VPS. The deploy script below uses flock: if a build is
-# still running it fails fast so two builds never run concurrently.
+  # False, not true. Cancelling the runner does NOT stop an SSH command already
+  # running on the VPS, so with `true` a second push would cancel the first run,
+  # then hit the still-held remote flock and exit 1 — losing both deploys. Queueing
+  # keeps every commit deployed in order.
+  cancel-in-progress: false
 
 jobs:
+  verify:
+    # Gate the deploy on the checks, so main cannot ship unverified code. This is
+    # a job dependency rather than a second workflow call so the gate cannot be
+    # skipped by accident.
+    uses: ./.github/workflows/verify.yml
+
   deploy:
     name: Deploy to VPS
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@b4bde1d8c5b8dcab4d110e7a03cd8f0c2f3d6a9 # v1.2.0
+        envs: DEPLOY_HOST
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          # String, not a number: a bare 22 would be parsed as YAML int.
+          port: ${{ secrets.DEPLOY_PORT || '22' }}
           command_timeout: 45m
           timeout: 90s
+          # DEPLOY_HOST arrives as an environment variable and is expanded on
+          # the remote side. Interpolating the secret into the command string
+          # would put it in the remote argv and in any shell tracing.
           script: |
             set -e
             cd /opt/abiturend
-            # Serialize deploys: flock fails fast if another build still runs
-            # (a cancelled GitHub run may leave the remote process alive, so do
-            # not wait for it — report and let the next run pick it up).
+
+            # Serialize deploys. A cancelled GitHub run can leave the remote
+            # process alive, so wait for the lock rather than failing fast:
+            # failing fast here meant a second push deployed nothing at all.
             exec 9>/tmp/abiturend-deploy.lock
-            flock -n 9 || { echo "Another deploy is still running on this server"; exit 1; }
+            if ! flock -w 1800 9; then
+              echo "Timed out waiting for another deploy to finish"; exit 1
+            fi
+
             # Fix broken DNS (observed after reboots): ensure outbound resolution
             # works for github.com and package registries before building.
             if ! timeout 5 getent hosts github.com >/dev/null 2>&1; then
@@ -46,6 +66,7 @@ jobs:
               systemctl restart systemd-resolved 2>/dev/null || true
               timeout 10 getent hosts github.com >/dev/null 2>&1 || true
             fi
+
             # Ensure swap exists so builds cannot freeze the small VPS (OOM)
             if ! swapon --show | grep -q .; then
               if [ ! -f /swapfile ]; then
@@ -56,18 +77,79 @@ jobs:
               swapon /swapfile || true
               echo '/swapfile none swap sw 0 0' >> /etc/fstab || true
             fi
+
+            # --ff-only instead of reset --hard: a reset silently discards any
+            # server-side edit, while a failed fast-forward stops and reports.
             git fetch origin main
-            git reset --hard origin/main
-            cp -n .env.example .env || true
+            git merge --ff-only origin/main
+
+            # ---- .env bootstrap / repair -------------------------------
+            # Idempotent, not first-run-only. The old script only copied the
+            # template when .env was absent, so an existing .env carrying a
+            # placeholder DJANGO_SECRET_KEY was left in place — and the new
+            # fail-closed guard would then crash-loop the backend on boot.
+            gen() { python3 -c "import secrets;print(secrets.token_urlsafe(48))"; }
+
+            if [ ! -f .env ]; then
+              cp .env.example .env
+              for k in DJANGO_SECRET_KEY POSTGRES_PASSWORD MCP_API_KEY; do
+                sed -i "s|^${k}=.*|${k}=$(gen)|" .env
+              done
+              echo "Bootstrapped .env with generated secrets"
+            else
+              # Repair a value that is empty, a known placeholder, or too short.
+              # POSTGRES_PASSWORD is deliberately NOT touched: the `db` volume
+              # was initialised with the current password, so rotating it here
+              # would lock the backend out. An operator changing it must do so
+              # deliberately against the existing volume.
+              for k in DJANGO_SECRET_KEY MCP_API_KEY; do
+                cur=$(grep -E "^${k}=" .env | head -1 | cut -d= -f2- || true)
+                if [ -z "$cur" ] || [ ${#cur} -lt 32 ] \
+                   || echo "$cur" | grep -qE 'change-me|changeme'; then
+                  sed -i "s|^${k}=.*|${k}=$(gen)|" .env
+                  echo "Regenerated $k in .env (was empty or a placeholder)"
+                fi
+              done
+              if grep -qE '^POSTGRES_PASSWORD=(change-me|changeme|$)' .env; then
+                echo "WARNING: POSTGRES_PASSWORD in .env is empty or a placeholder."
+                echo "         Set it to the password the existing 'db' volume"
+                echo "         was initialised with before the next deploy."
+              fi
+            fi
+
             # IMPORTANT: do NOT prune the builder cache. Keeping it makes every
             # deploy incremental, so rebuilds are light and never OOM the VPS.
             export DOCKER_BUILDKIT=1
             docker compose build
-            docker compose up -d --remove-orphans
-            docker compose exec -T backend python manage.py migrate --noinput || true
-            # Idempotent seed data the UI depends on (plans + badges), safe to re-run.
-            docker compose exec -T backend python manage.py seed_premium || true
-            docker compose exec -T backend python manage.py seed_badges || true
-            docker compose exec -T backend python manage.py collectstatic --noinput || true
-            docker compose exec -T backend python manage.py tg_set_webhook --url "https://${{ secrets.DEPLOY_HOST }}/webhooks/telegram/" || true
+
+            # --wait blocks until every service reports healthy, which is what
+            # makes the post-deploy gate below meaningful. Migrations run as the
+            # backend container's own command, so they are NOT repeated here —
+            # two concurrent migrate processes on one database can collide on
+            # PostgreSQL's catalogue index.
+            docker compose up -d --remove-orphans --wait
+
+            # Idempotent seed data the UI depends on, safe to re-run. These were
+            # missing entirely, so a fresh production database deployed with an
+            # empty subject catalogue and no universities — the subjects and
+            # universities pages render empty with no error anywhere.
+            docker compose exec -T backend python manage.py seed_catalog
+            docker compose exec -T backend python manage.py seed_universities
+            docker compose exec -T backend python manage.py seed_premium
+            docker compose exec -T backend python manage.py seed_badges
+
+            # collectstatic already runs in the backend CMD with --clear.
+
+            # Optional integrations: a failure here must not mark the deploy
+            # broken, but it must be visible rather than swallowed silently.
+            docker compose exec -T backend python manage.py tg_set_webhook \
+              --url "https://${DEPLOY_HOST}/webhooks/telegram/" \
+              || echo "WARNING: telegram webhook registration failed"
+
+            # Real post-deploy gate: the health endpoint, with retries while
+            # the stack finishes coming up.
+            curl -fsS --retry 10 --retry-delay 5 --retry-all-errors \
+              "https://${DEPLOY_HOST}/api/health/" >/dev/null \
+              || { echo "Health check failed after deploy"; exit 1; }
+
             echo "Deploy OK: $(date -u)"

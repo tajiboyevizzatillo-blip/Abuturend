@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
 
-from catalog.models import Subject
+from catalog.models import Subject, Topic
 from universities.models import Direction
 
 from .models import OnboardingPlan, OnboardingProfile
@@ -116,27 +116,16 @@ class OnboardingSubmitSerializer(serializers.Serializer):
         return attrs
 
 
-class PlanDayItemSerializer(serializers.Serializer):
-    subject_id = serializers.IntegerField()
-    subject = serializers.SerializerMethodField()
-    topic_id = serializers.IntegerField(allow_null=True)
-    topic = serializers.SerializerMethodField()
-    questions = serializers.IntegerField()
-    minutes = serializers.IntegerField()
-
-    def get_subject(self, obj):
-        return _subject_brief(obj["subject_id"])
-
-    def get_topic(self, obj):
-        return _topic_brief(obj.get("topic_id"))
-
-
-def _subject_brief(subject_id):
+def _subject_brief(subject_id, cache=None):
     if subject_id is None:
         return None
+    if cache is not None:
+        return cache.get(subject_id)
     subject = Subject.objects.filter(pk=subject_id).first()
-    if subject is None:
-        return None
+    return None if subject is None else _subject_payload(subject)
+
+
+def _subject_payload(subject):
     return {
         "id": subject.id,
         "slug": subject.slug,
@@ -147,14 +136,16 @@ def _subject_brief(subject_id):
     }
 
 
-def _topic_brief(topic_id):
-    from catalog.models import Topic
-
+def _topic_brief(topic_id, cache=None):
     if topic_id is None:
         return None
+    if cache is not None:
+        return cache.get(topic_id)
     topic = Topic.objects.filter(pk=topic_id).select_related("subject").first()
-    if topic is None:
-        return None
+    return None if topic is None else _topic_payload(topic)
+
+
+def _topic_payload(topic):
     return {
         "id": topic.id,
         "slug": topic.slug,
@@ -163,6 +154,48 @@ def _topic_brief(topic_id):
         "name_ru": topic.name_ru,
         "name_en": topic.name_en,
     }
+
+
+def _warm_briefs(subject_ids, topic_ids):
+    """Resolve every subject/topic referenced by a plan in two queries.
+
+    A plan is up to ``MAX_ITEMS_PER_DAY`` * 7 items, each needing a subject and
+    a topic. Resolving them one at a time cost ~2 queries per item, so a single
+    ``GET /api/onboarding/plan/`` could run 40+ identical queries. Two batched
+    ``IN`` queries return the same payloads for a fixed cost.
+    """
+    subjects = {
+        s.id: _subject_payload(s)
+        for s in Subject.objects.filter(pk__in=set(subject_ids) - {None})
+    }
+    topics = {
+        t.id: _topic_payload(t)
+        for t in Topic.objects.filter(pk__in=set(topic_ids) - {None}).select_related(
+            "subject"
+        )
+    }
+    return subjects, topics
+
+
+class PlanDayItemSerializer(serializers.Serializer):
+    subject_id = serializers.IntegerField()
+    subject = serializers.SerializerMethodField()
+    topic_id = serializers.IntegerField(allow_null=True)
+    topic = serializers.SerializerMethodField()
+    questions = serializers.IntegerField()
+    minutes = serializers.IntegerField()
+
+    def get_subject(self, obj):
+        return _subject_brief(obj["subject_id"], self._subjects())
+
+    def get_topic(self, obj):
+        return _topic_brief(obj.get("topic_id"), self._topics())
+
+    def _subjects(self):
+        return (self.context or {}).get("subjects") or {}
+
+    def _topics(self):
+        return (self.context or {}).get("topics") or {}
 
 
 class OnboardingPlanSerializer(serializers.ModelSerializer):
@@ -186,20 +219,43 @@ class OnboardingPlanSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def _briefs(self, obj):
+        """Memoized ``(subjects, topics)`` brief maps for this plan."""
+        cached = getattr(self, "_brief_cache", None)
+        if cached is not None:
+            return cached
+        subject_ids, topic_ids = set(), set()
+        for day in obj.days or []:
+            for item in day.get("items", []):
+                subject_ids.add(item.get("subject_id"))
+                topic_ids.add(item.get("topic_id"))
+        # Weak subjects may not appear in any day item (all their questions
+        # already fit into earlier days), but they still need a name rendered.
+        subject_ids.update(obj.weak_subject_ids or [])
+        subjects, topics = _warm_briefs(subject_ids, topic_ids)
+        self._brief_cache = (subjects, topics)
+        return self._brief_cache
+
     def get_days(self, obj):
+        subjects, topics = self._briefs(obj)
         return [
             {
                 "day": day.get("day"),
                 "date": day.get("date"),
                 "questions": day.get("questions", 0),
                 "minutes": day.get("minutes", 0),
-                "items": PlanDayItemSerializer(day.get("items", []), many=True).data,
+                "items": PlanDayItemSerializer(
+                    day.get("items", []),
+                    many=True,
+                    context={"subjects": subjects, "topics": topics},
+                ).data,
             }
             for day in obj.days
         ]
 
     def get_weak_subjects(self, obj):
-        return [_subject_brief(sid) for sid in obj.weak_subject_ids or []]
+        subjects, _ = self._briefs(obj)
+        return [subjects.get(sid) for sid in (obj.weak_subject_ids or [])]
 
     def get_today(self, obj):
         """Index of today's plan day (1-based), ``None`` when the plan is over."""

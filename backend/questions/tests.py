@@ -122,6 +122,131 @@ class QuestionApiTests(APITestCase):
         res = self.client.get("/api/questions/")
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
+    # ---- object-level authorization -------------------------------------
+
+    def test_teacher_cannot_edit_another_teachers_draft(self):
+        """A plain teacher is confined to the questions they authored."""
+        other = User.objects.create_user(
+            username="teacher2", password="Passw0rd!", role=User.Role.TEACHER
+        )
+        foreign = Question.objects.create(
+            subject=self.subject,
+            text_uz="Boshqa o'qituvchi qoralamasi",
+            status=Question.Status.DRAFT,
+            created_by=other,
+        )
+        self._auth(self.teacher)
+        res = self.client.patch(
+            f"/api/questions/{foreign.id}/", {"text_uz": "O'girlash"}, format="json"
+        )
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        foreign.refresh_from_db()
+        self.assertEqual(foreign.text_uz, "Boshqa o'qituvchi qoralamasi")
+
+    def test_teacher_cannot_delete_another_teachers_question(self):
+        other = User.objects.create_user(
+            username="teacher2", password="Passw0rd!", role=User.Role.TEACHER
+        )
+        foreign = Question.objects.create(
+            subject=self.subject,
+            text_uz="Boshqa savol",
+            status=Question.Status.PUBLISHED,
+            created_by=other,
+        )
+        self._auth(self.teacher)
+        res = self.client.delete(f"/api/questions/{foreign.id}/")
+        # Denied either way: the queryset hides another teacher's draft, and a
+        # published row is visible but rejected by the object permission (403).
+        self.assertIn(
+            res.status_code,
+            (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND),
+        )
+        self.assertTrue(Question.objects.filter(pk=foreign.pk).exists())
+
+    def test_teacher_does_not_see_other_teachers_drafts_in_the_list(self):
+        other = User.objects.create_user(
+            username="teacher2", password="Passw0rd!", role=User.Role.TEACHER
+        )
+        foreign = Question.objects.create(
+            subject=self.subject,
+            text_uz="Yashirin qoralama",
+            status=Question.Status.DRAFT,
+            created_by=other,
+        )
+        self._auth(self.teacher)
+        ids = [q["id"] for q in self.client.get("/api/questions/").data["results"]]
+        self.assertNotIn(foreign.id, ids)
+
+    def test_admin_role_moderates_any_question(self):
+        admin = User.objects.create_user(
+            username="board", password="Passw0rd!", role=User.Role.ADMIN
+        )
+        self._auth(admin)
+        res = self.client.patch(
+            f"/api/questions/{self.draft.id}/", {"status": "archived"}, format="json"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.status, Question.Status.ARCHIVED)
+
+    # ---- trust flags are not client-writable ----------------------------
+
+    def test_teacher_cannot_set_is_verified_or_is_official(self):
+        """Verification is a review decision, not something a client asserts."""
+        self._auth(self.teacher)
+        res = self.client.post(
+            "/api/questions/",
+            {
+                "subject": self.subject.id,
+                "text_uz": "Qo'lda qo'yilgan 'rasmiy' savol",
+                "is_verified": True,
+                "is_official": True,
+                "options": [
+                    {"text_uz": "ha", "is_correct": True},
+                    {"text_uz": "yo'q", "is_correct": False},
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        created = Question.objects.get(pk=res.data["id"])
+        self.assertFalse(created.is_verified)
+        self.assertFalse(created.is_official)
+
+    def test_teacher_cannot_patch_is_verified(self):
+        self._auth(self.teacher)
+        res = self.client.patch(
+            f"/api/questions/{self.q.id}/", {"is_verified": True}, format="json"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.q.refresh_from_db()
+        self.assertFalse(self.q.is_verified)
+
+    def test_trust_flags_are_not_writable_through_the_api(self):
+        """Verification is set in the Django admin, never over the API.
+
+        The flags are read-only for every role, admin included: a review
+        decision that can arrive from an HTTP request is not a review decision.
+        Staff set them through /admin/, where the action is attributed and
+        auditable.
+        """
+        admin = User.objects.create_user(
+            username="board", password="Passw0rd!", role=User.Role.ADMIN
+        )
+        self._auth(admin)
+        res = self.client.patch(
+            f"/api/questions/{self.q.id}/",
+            {"is_verified": True, "is_official": True},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.q.refresh_from_db()
+        self.assertFalse(self.q.is_verified)
+        self.assertFalse(self.q.is_official)
+        # Both flags are still reported, so the UI can display review state.
+        self.assertIn("is_verified", res.data)
+        self.assertIn("is_official", res.data)
+
     def test_ordering_defaults_to_newest_first(self):
         later = Question.objects.create(
             subject=self.subject,

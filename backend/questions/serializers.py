@@ -65,7 +65,16 @@ class QuestionFullSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["created_by"]
+        # is_official / is_verified are review decisions, not client input: a teacher
+        # that could write them could self-certify a hand-written item as an
+        # official DTM question with no verification. They are read-only over the
+        # API and set by staff through the admin, which is where they belong.
+        #
+        # ``status`` deliberately stays writable: publishing and archiving your
+        # own questions is the teacher's core workflow. It is safe because
+        # CanManageQuestions.has_object_permission confines a plain teacher to
+        # questions they authored.
+        read_only_fields = ["created_by", "is_official", "is_verified"]
 
     def validate(self, attrs):
         options = attrs.get("options")

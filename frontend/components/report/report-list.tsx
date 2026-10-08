@@ -35,6 +35,7 @@ export function ReportList({ report }: { report: SessionReport | null }) {
             : locale === "en"
               ? correct?.text_en || correct?.text_uz
               : correct?.text_uz;
+        const unanswered = row.selected_option_id == null;
         const explanation =
           locale === "ru"
             ? row.question.explanation_ru || row.question.explanation_uz
@@ -44,13 +45,15 @@ export function ReportList({ report }: { report: SessionReport | null }) {
         return (
           <div key={row.question.id} className="card p-5">
             <div className="flex gap-3">
+              {/* A skipped question is neither correct nor "wrong": labelling it
+                  as a wrong answer hid how many were simply never reached. */}
               <span
                 className={cn(
                   "badge",
-                  row.is_correct ? "badge-success" : "badge-danger"
+                  unanswered ? "badge-neutral" : row.is_correct ? "badge-success" : "badge-danger"
                 )}
               >
-                {row.is_correct ? t("correctAnswer") : t("wrongAnswer")}
+                {unanswered ? t("unanswered") : row.is_correct ? t("correctAnswer") : t("wrongAnswer")}
               </span>
             </div>
             <p className="mt-2 font-medium leading-relaxed">{questionText}</p>
@@ -60,7 +63,7 @@ export function ReportList({ report }: { report: SessionReport | null }) {
               </p>
               {!row.is_correct ? (
                 <p className="text-subtle">
-                  {t("correctAnswer")}: <span className="font-semibold text-success">{correctText}</span>
+                  {t("correctAnswer")}: <span className="font-semibold text-success">{correctText ?? "—"}</span>
                 </p>
               ) : null}
             </div>

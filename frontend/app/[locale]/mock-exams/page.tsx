@@ -8,15 +8,18 @@ import { Alert } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExamSetup, ExamPlayer } from "@/components/exam/exam-player";
 import { fetchSubjects, localizedName, type Subject } from "@/lib/catalog";
-import { fetchSessionList, type SessionListItem } from "@/lib/sessions";
+import { abandonSession, fetchSessionList, type SessionListItem } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 
 function HistoryList({ subjects, onBack }: { subjects: Subject[]; onBack: () => void }) {
   const t = useTranslations("exam");
   const common = useTranslations("common");
+  const hist = useTranslations("history");
   const locale = useLocale();
   const [rows, setRows] = useState<SessionListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [abandoning, setAbandoning] = useState<number | null>(null);
+  const [abandonError, setAbandonError] = useState(false);
 
   const load = useCallback(() => {
     fetchSessionList()
@@ -28,6 +31,29 @@ function HistoryList({ subjects, onBack }: { subjects: Subject[]; onBack: () => 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Same escape hatch as the history page: an attempt that cannot be resumed
+  // should not sit in the list as an inert row forever.
+  const abandon = async (id: number) => {
+    setAbandoning(id);
+    setAbandonError(false);
+    try {
+      await abandonSession(id);
+      setRows((prev) =>
+        prev
+          ? prev.map((r) =>
+              r.id === id
+                ? { ...r, status: "abandoned" as const, finished_at: r.finished_at ?? r.started_at }
+                : r
+            )
+          : prev
+      );
+    } catch {
+      setAbandonError(true);
+    } finally {
+      setAbandoning(null);
+    }
+  };
 
   const nameById = useMemo(
     () => new Map(subjects.map((s) => [s.id, localizedName(s, locale)])),
@@ -48,6 +74,7 @@ function HistoryList({ subjects, onBack }: { subjects: Subject[]; onBack: () => 
       </div>
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
+      {abandonError ? <Alert variant="danger">{hist("abandonFailed")}</Alert> : null}
 
       {!rows && !error ? (
         <div className="flex flex-col gap-3">
@@ -65,24 +92,30 @@ function HistoryList({ subjects, onBack }: { subjects: Subject[]; onBack: () => 
       ) : rows ? (
         <div className="flex flex-col gap-3">
           {rows.map((r) => {
+            const done = r.status === "finished";
+            const abandoned = r.status === "abandoned";
             const rowInner = (
               <>
                 <div
                   className={cn(
                     "relative h-16 w-16 shrink-0",
-                    r.status === "finished" && (r.score_percent ?? 0) >= 60 ? "text-success" : "text-danger"
+                    abandoned
+                      ? "text-subtle"
+                      : done && (r.score_percent ?? 0) >= 60
+                        ? "text-success"
+                        : "text-danger"
                   )}
                 >
                   <div
                     className="score-ring absolute inset-0"
-                    style={{ "--p": r.score_percent ?? 0 } as React.CSSProperties}
+                    style={{ "--p": abandoned ? 0 : (r.score_percent ?? 0) } as React.CSSProperties}
                     role="progressbar"
-                    aria-valuenow={r.score_percent ?? 0}
+                    aria-valuenow={abandoned ? 0 : (r.score_percent ?? 0)}
                     aria-valuemin={0}
                     aria-valuemax={100}
                   />
                   <div className="absolute inset-0 flex items-center justify-center text-sm font-bold tabular-nums">
-                    {r.status === "finished" ? `${r.score_percent ?? 0}%` : "…"}
+                    {done ? `${r.score_percent ?? 0}%` : abandoned ? "—" : "…"}
                   </div>
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -92,26 +125,44 @@ function HistoryList({ subjects, onBack }: { subjects: Subject[]; onBack: () => 
                   </p>
                   <div className="mt-1 flex gap-2">
                     <span className="badge badge-neutral">
-                      {r.correct_answers ?? "…"}/{r.question_count} ✓
+                      {done ? r.correct_answers ?? 0 : abandoned ? "—" : "…"}/{r.question_count} ✓
                     </span>
                     <span className="badge badge-neutral">
-                      {r.correct_answers === null ? "…" : (r.incorrect_answers ?? 0) + r.unanswered} ✗
+                      {done ? r.incorrect_answers ?? 0 : abandoned ? "—" : "…"} ✗
                     </span>
                   </div>
                 </div>
-                <span className={cn("badge", r.status === "finished" ? "badge-success" : "badge-warning")}>
-                  {r.status === "finished" ? common("verified") : common("inProgress")}
+                <span
+                  className={cn(
+                    "badge",
+                    done ? "badge-success" : abandoned ? "badge-neutral" : "badge-warning"
+                  )}
+                >
+                  {done ? common("verified") : abandoned ? hist("abandoned") : common("inProgress")}
                 </span>
               </>
             );
-            const rowClass = "card card-hover flex items-center gap-4 p-5";
-            return r.status === "finished" ? (
-              <Link key={r.id} href={`/results/${r.id}`} className={rowClass}>
-                {rowInner}
-              </Link>
-            ) : (
+            const rowClass = "card flex items-center gap-4 p-5";
+            if (done) {
+              return (
+                <Link key={r.id} href={`/results/${r.id}`} className={`${rowClass} card-hover`}>
+                  {rowInner}
+                </Link>
+              );
+            }
+            return (
               <div key={r.id} className={rowClass}>
                 {rowInner}
+                {abandoned ? null : (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => abandon(r.id)}
+                    disabled={abandoning === r.id}
+                  >
+                    {abandoning === r.id ? common("loading") : hist("abandon")}
+                  </button>
+                )}
               </div>
             );
           })}

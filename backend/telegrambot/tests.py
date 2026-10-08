@@ -146,3 +146,31 @@ class TelegramWebhookTests(TestCase):
         resp = self._post("/id", chat_id="999")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"ok": True})
+
+    @override_settings(
+        TELEGRAM_WEBHOOK_SECRET="",
+        TELEGRAM_BOT_TOKEN="",
+        TELEGRAM_CHAT_ID="5458715260",
+        DEBUG=True,
+    )
+    def test_empty_secret_rejected_even_with_debug_on(self):
+        """Fail closed: no secret means no webhook, DEBUG notwithstanding.
+
+        Previously an unset secret fell back to accepting any request when DEBUG
+        was on, so any internet-reachable dev or staging host could drive the bot
+        and its notification channel.
+        """
+        resp = self._post("/id", secret="")
+        self.assertEqual(resp.status_code, 401)
+        resp = self._post("/id", secret="anything")
+        self.assertEqual(resp.status_code, 401)
+
+    @override_settings(
+        TELEGRAM_WEBHOOK_SECRET="",
+        TELEGRAM_BOT_TOKEN="",
+        TELEGRAM_CHAT_ID="5458715260",
+        DEBUG=False,
+    )
+    def test_empty_secret_rejected_in_production_settings(self):
+        resp = self._post("/id", secret="")
+        self.assertEqual(resp.status_code, 401)

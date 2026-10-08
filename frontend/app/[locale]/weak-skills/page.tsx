@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
@@ -26,7 +26,7 @@ import {
 import { cn } from "@/lib/utils";
 
 function shortLabel(name: string, max = 14): string {
-  return name.length > max ? `${name.slice(0, max - 1)}вЂ¦` : name;
+  return name.length > max ? `${name.slice(0, max - 1)}…` : name;
 }
 
 export default function WeakSkillsPage() {
@@ -137,7 +137,7 @@ export default function WeakSkillsPage() {
       <ProtectedShell>
         <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center gap-5 px-4 py-16 text-center sm:px-6">
           <span className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-soft text-3xl">
-            рџЋЇ
+            🎯
           </span>
           <h1 className="text-2xl font-extrabold tracking-tight">{t("title")}</h1>
           <p className="max-w-md text-sm text-subtle">{t("empty")}</p>

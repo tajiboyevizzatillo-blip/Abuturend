@@ -7,7 +7,7 @@
 - **Texnologiyalar:** Next.js 16 (App Router, Turbopack) + React 19 + TypeScript + next-intl (uz/ru/en) — `frontend/`; Django 6 + DRF + session-auth — `backend/` (apps: accounts, catalog, core, questions, practice, premium, payments, gamification, universities, mcpbridge, telegrambot, onboarding).
 - **Baza:** PostgreSQL 17 (prod/docker), testda SQLite (`DJANGO_USE_SQLITE=1`).
 - **Ishga tushirish:** `docker compose up` (nginx → frontend:3000, backend gunicorn) yoki lokal: `manage.py runserver` + `npm run dev`; deploy — GitHub Actions → VPS (flock bilan seriyalashgan).
-- **Holat (2026-09):** backend test 215/215, frontend lint+build 62 sahifa, i18n 492/492/492 teng. Muhim funksiyalar: parol tiklash, Payme/Click, umumiy imtihon + sertifikat (`/verify/[serial]`), xatolar daftari (`/mistakes`), onboarding wizard + 7 kunlik reja (`/onboarding`).
+- **Holat (2026-10, audit dan keyin):** backend test 272/272, frontend lint+typecheck+build 63 sahifa, i18n 523/523/523 teng (mojibake va kirill aralashuvi tekshiruvi `core.tests.TextEncodingTests` bilan qo'riqlanadi). Muhim funksiyalar: parol tiklash, Payme/Click, umumiy imtihon + sertifikat (`/verify/[serial]`), xatolar daftari (`/mistakes`), onboarding wizard + 7 kunlik reja (`/onboarding`), zaif mavzu radar (`/weak-skills`), sessiyani tashlab ketish (`POST /api/sessions/{id}/abandon/`).
 
 ## 1-BOSQICH: Tahlil (topilgan muammolar)
 
@@ -20,16 +20,44 @@
 6. **Mobil menyu** — header navigatsiyasi `md:flex` bilan yashirin; telefonda menyu boshqaruvi tekshiriladi (stage 4).
 7. **`fetchSessionList` sahifalash** — `page_size` yuborilmasa server 20 tagacha qaytaradi (tarix to'ldirilganda jim kesilishi mumkin).
 
-### Xavfsizlik (holati yaxshi — tekshirildi)
-- `.env` gitignore'da, faqat `.env.example` (kalitlar bo'sh) track qilinadi ✅
-- Throttling: auth 20/min, register 5/hour, password 10/hour, answers 120/min, checkout 20/min ✅
-- DEBUG real server jarayonlarda o'chirilgan, SECRET_KEY fail-closed ✅
-- Session-auth: boshqaning sessiyasi/hisoboti ko'rinmaydi (queryset filtri), sertifikat ochiq tekshiruvi faqat seriya bo'yicha ✅
-- Payme/Click webhook'lari fail-closed (kalit bo'sh = 401) ✅
-- Kodda maxfiy kalit/`print`/`console.log`/TODO topilmadi ✅
+### Xavfsizlik (2026-10 audit'da tekshirildi va tuzatildi)
+Audit oldingi xulosasi ("holati yaxshi") to'liq emas edi — quyidagi kamchiliklar
+topildi va bartaraf etildi:
+
+- `.env` va barcha `.env.*` variantlari gitignore'da (`.env.example` bundan
+  mustasno), `*.pem`/`*.key`/`*.crt` ham ✅
+- **SECRET_KEY**: ilgari faqat bitta o'rinbosar qiymat rad etilardi, ammo
+  compose boshqasini (`change-me-in-production`) qo'yardi — ya'ni himoya
+  ishlashdan to'xtagan edi. Endi barcha o'rinbosar qiymatlar deny-listda,
+  uzunlik tekshiriladi, va compose `${VAR:?}` bilan butunlay ishga tushmaydi ✅
+- **Rate limiting**: `NUM_PROXIES` yo'q edi, shuning uchun DRF `REMOTE_ADDR`
+  (nginx IP) dan foydalanardi — barcha foydalanuvchilar bitta chelada
+  (register: butun sayt uchun soatiga 5 marta). Endi `NUM_PROXIES=1` +
+  nginx `real_ip` ✅
+- **Premium darajasi**: `is_premium()` "biror Subscription qatori bor" degan
+  ma'noda edi, `free-trial` esa qator yaratadi — ya'ni to'lov qilmagan
+  foydalanuvchi ham PRO imtiyozlarini olardi. Endi daraja (`tier`) tekshiriladi ✅
+- **O'qituvchi huquqlari**: `CanManageQuestions` faqat rol darajasida edi;
+  boshqa o'qituvchining savolini tahrirlash/o'chirish erkin edi. Endi
+  `has_object_permission` qo'shildi ✅
+- **Ishonch bayroqlari**: `is_verified`/`is_official` API orqali yozilardi —
+  o'qituvchi o'zini "rasmiy" deb belgilay olardi. Endi read-only ✅
+- **Open redirect**: `return_path` orqali `/\/evil.com` o'tib ketardi
+  (`\` brauzerda `/` ga aylanadi). Endi allow-list ✅
+- **Telegram webhook**: kalit bo'ganda `DEBUG` rozi bo'lsa webhook **ochiq**
+  qabul qilardi. Endi shartsiz fail-closed ✅
+- **CSP**: nginx'dagi `script-src 'self'` Next.js inline skriptlarini bloklagan —
+  sahifa chizilardi lekin gidratatsiya ishlamasdi. Endi `unsafe-inline` ✅
+- Sessiya/CSRF cookie'lari `DEBUG=False` da `Secure` (ilgari `False`)
+- DB ulanishi `CONN_MAX_AGE=60` + health check bilan
+- Barcha konteynerlar non-root, healthcheck va log rotation bilan
 
 ### Samaradorlik / tozalik
-- Leaderboard annotatsiyasi barcha user'lar ustida (baza o'sganda `[:10]` bilan cheklangan — limit parametri bilan saqlanadi)
+- Leaderboard annotatsiyasi barcha user'lar ustida — endi `cache_page` (60s) va
+  `public_read` throttle bilan (u ommaviy, anonim va agregatli eng qimmatli so'rov)
+- `/api/stats/summary/` har bir so'rovda barcha sessiyalarni Python'ga olib kelib
+  yig'ardi, haftalik faollikni esa har bir javobni tsiklda hisoblar edi; endi
+  hammasi SQL agregatida
 - Exam-player'ni results sahifasiga import qilsak butun player bundle tushadi → ReportList ajratiladi
 
 ### Yetishmayotgan mahsulot qismlari
@@ -93,6 +121,42 @@ foydalanuvchilarda "eng zaif" degani bilan mos kelmasdi.
 | Telegram | `/weak` (va menyudagi tugma) — `TELEGRAM_LINKED_USER` dagi hisobning eng zaif 3 mavzusi. Sozlanmagan/topilmasa **xato bermaydi**, tushuntirish qaytaradi; webhook har doim 200 |
 | i18n | `weakSkills` (26 kalit) + `nav.weakSkills` + `mistakes.toRadar` — uz/ru/en uchta faylga ham qo'shildi |
 | Test | 19 ta test (`practice/test_weak_skills.py`): aniqlik hisobi, 5-javob qoidasi (4 javob -> zaif emas), "Boshqa" guruhi, javoblanmagan/qoralama savollar hisobga olinmasligi, chegara konfiguratsiyasi va chegara tengligi, foydalanuvchilararo izolyatsiya, 401/403, fan id hamda slug bilan, 404, free limiti yashirish, tarix faqat PRO da, mashq faqat PRO da (402 + sessiya yaratilmasin) |
+
+## 4-BOSQICH: Production audit (2026-10)
+
+Uchta mustaqil audit (backend xavfsizlik, frontend, infratuzilma) o'tkazildi va
+topilgan kamchiliklar tuzatildi. To'liq ro'yxat va qarorlar `worklog.md` da.
+Eng muhimlari:
+
+**Xavfsizlik**
+- `SECRET_KEY` fail-closed himoyasi faqat bitta o'rinbosar qiymatni rad etardi;
+  compose boshqasini qo'yardi → deny-list + uzunlik tekshiruvi + `${VAR:?}`
+- `NUM_PROXIES` yo'qligi sabab barcha mijoz bitta rate-limit chelada edi
+- `is_premium()` "qator bor" degan ma'noda edi → bepul tarif PRO ochib qo'yardi
+- `CanManageQuestions` da obyekt darajasidagi ruxsat yo'q edi
+- `is_verified`/`is_official` API orqali yozilardi
+- `return_path` da `/\/evil.com` open redirect qilib o'tdi
+- Telegram webhook `DEBUG` da **ochiq** qabul qilardi
+- nginx CSP Next.js inline skriptlarini bloklagan (sahifa o'lim edi)
+
+**Mashhurlik / to'g'rilik**
+- Kunlik limit weak-skills yo'lida atomik emas edi (TOCTOU)
+- Imtihon davomiyligi mijoz nazoratida (`duration_minutes=240` mumkin edi)
+- Reyting ommaviy, anonim va throttlesiz eng qimmatli so'rov edi
+- `stats/summary` barcha sessiyalarni Python'da yig'ardi
+- Xatolar daftari tashlab ketilgan sessiyalarni hisobga olardi
+- Exam'da allaqachon javoblangan savol qayta yuborilardi
+- O'qituvchi panelida savol **yaratib bo'lmasdi** (`formOpen` xato hisoblangan)
+- `setRetry(fn)` funksiyani state'ga berardi → Retry tugmasi umuman chiqmasdi
+
+**Infratuzilma**
+- `certbot` yo'q edi: yangi o'rnatish ishga tushmasdi, 90 kundan keyin
+  sertifikat o'zi o'chardi
+- `BACKEND_URL` build ARG sifatida berilmagan edi
+- `WEAK_SKILL_*` va `TELEGRAM_LINKED_USER` compose'da yo'qotilgan edi
+- Migratsiya ikki marta (`CMD` va CI) parallel ishga tushardi
+- CI **hech narsani** tekshirmasdi; endi `verify.yml` bor va deploy unga bog'liq
+- Barcha konteynerlar root edi; log rotation va memory limit yo'q edi
 
 **Tanlangan qarorlar (tushuntirilgan):**
 

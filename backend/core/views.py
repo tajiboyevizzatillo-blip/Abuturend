@@ -158,6 +158,30 @@ API_ENDPOINTS = [
         "purpose": "Finish the session and receive the full score report.",
     },
     {
+        "path": "/api/sessions/{id}/abandon/",
+        "method": "POST",
+        "auth": "session",
+        "purpose": "Give up on an in-progress session: no score, no report, no badges. The daily quota slot stays spent.",
+    },
+    {
+        "path": "/api/weak-skills/",
+        "method": "GET",
+        "auth": "session",
+        "purpose": "Weak-skill radar: per-subject accuracy, weakest topics, and the rules in effect.",
+    },
+    {
+        "path": "/api/weak-skills/{subject}/",
+        "method": "GET",
+        "auth": "session",
+        "purpose": "Topic-level accuracy within one subject (id or slug). Adds daily history for PRO.",
+    },
+    {
+        "path": "/api/weak-skills/practice/",
+        "method": "POST",
+        "auth": "session",
+        "purpose": "Start a practice session from the student's weak topics (topic_ids is PRO-only).",
+    },
+    {
         "path": "/api/sessions/{id}/report/",
         "method": "GET",
         "auth": "session",

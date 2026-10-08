@@ -1,21 +1,25 @@
-﻿"""Zaif mavzular radari вЂ” fan va mavzu bo'yicha aniqlik tahlili.
+"""Zaif mavzular radari — fan va mavzu bo'yicha aniqlik tahlili.
 
 Nima uchun agregat bilan hisoblaymiz (alohida ``TopicStat`` jadvali emas):
 javoblar ``PracticeAnswer`` da saqlanadi va har bir so'rovda bitta GROUP BY
 bajarish ham eng so'nggi ma'lumotni beradi, ham "yangi javob kelganda
 yangilansin" talabini (qo'shimcha jadval + yozuv mantiqi) butunlay olib
-tashlaydi вЂ” kashf qilingan kashf emas, o'z-o'zidan yangilanadigan hisob.
+tashlaydi — kashf qilingan kashf emas, o'z-o'zidan yangilanadigan hisob.
 ``Question.topic`` indekslangan (migratsiya ``questions_0014``), shuning uchun
 bu so'rovlar indeks ishlatadi va ko'p javobli hisobda ham tez qoladi.
 
 Ishonchlilik qoidasi: mavzuda kamida ``WEAK_SKILL_MIN_ANSWERS`` ta javob
-bo'lmasa uni "yetarli ma'lumot yo'q" deb belgilaymiz va zaif hisoblamaymiz вЂ”
+bo'lmasa uni "yetarli ma'lumot yo'q" deb belgilaymiz va zaif hisoblamaymiz —
 aks holda bitta javobdan "0%" chiqib, foydalanuvchini chalg'itardi.
 """
+
+import sys
 
 from django.conf import settings
 from django.db.models import Case, Count, IntegerField, Max, Sum, Value, When
 from django.db.models.functions import TruncDate
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -26,6 +30,16 @@ from premium import services as premium_services
 from questions.models import Question
 
 from .models import PracticeAnswer, PracticeSession
+
+# Radar/subject reads run GROUP BY scans over the caller's whole answer
+# history and are served on every /weak-skills visit and dashboard load.
+# Cached per session (the key varies on Cookie), so a stale entry can only
+# belong to the student who requested it. Zero while the test suite runs —
+# LocMemCache is process-wide and a cached response would leak between tests,
+# same reasoning as LEADERBOARD_CACHE_SECONDS in views.py.
+WEAK_CACHE_SECONDS = (
+    0 if "test" in sys.argv else getattr(settings, "WEAK_SKILL_CACHE_SECONDS", 30)
+)
 
 
 def min_answers():
@@ -45,7 +59,7 @@ def free_topic_limit():
 def answered_queryset(user):
     """Faqat haqiqiy javob berilgan, tugallangan sessiyalar.
 
-    ``selected_option`` bo'sh qatorlar вЂ” tugallanmagan urinishlar; ularni
+    ``selected_option`` bo'sh qatorlar — tugallanmagan urinishlar; ularni
     hisobga olinsa aniqlik sun'iy pasayib, zaif mavzular ro'yxati bo'sh
     joylashuvi mumkin edi.
     """
@@ -65,7 +79,7 @@ def _accuracy(correct, answered):
 
 
 def _correct_sum():
-    """``SUM(is_correct)`` вЂ” Postgres'da boolean yig'ib bo'lmaydi.
+    """``SUM(is_correct)`` — Postgres'da boolean yig'ib bo'lmaydi.
 
     SQLite uchun ``SUM(is_correct)`` ishlaydi, Postgres esa "sum(boolean)"
     xatosini beradi. Shu yerga CASE yozsak, ikkala bazada ham bir xil
@@ -77,12 +91,16 @@ def _correct_sum():
     )
 
 
-def topic_stats(user, subject_id=None):
+def topic_stats(user, subject_id=None, subject_ids=None):
     """Mavzular bo'yicha aniqlik. Bitta agregat so'rovi + nomlarni olish.
 
     Mavzusiz savollar (``topic_id IS NULL``) alohida qatorga aylanadi va
-    ``is_other=True`` bilan qaytariladi вЂ” ular uchun o'ylab topilgan mavzu
+    ``is_other=True`` bilan qaytariladi — ular uchun o'ylab topilgan mavzu
     yaratilmaydi (boshqa savollar bilan aralashib ketmasligi uchun).
+
+    ``subject_id`` bitta fan, ``subject_ids`` esa bir nechta fan uchun
+    (onboarding rejasi faqat tanlangan fanlar statistikasiga muhtoj — SQL
+    darajasida filtrlaydi, Python'da emas).
     """
     qs = answered_queryset(user).values(
         "question__topic_id", "question__subject_id"
@@ -93,6 +111,8 @@ def topic_stats(user, subject_id=None):
     )
     if subject_id is not None:
         qs = qs.filter(question__subject_id=subject_id)
+    elif subject_ids is not None:
+        qs = qs.filter(question__subject_id__in=set(subject_ids))
 
     rows = list(qs)
     topic_ids = {r["question__topic_id"] for r in rows if r["question__topic_id"]}
@@ -111,7 +131,7 @@ def topic_stats(user, subject_id=None):
             {
                 "topic_id": topic_id,
                 "topic_name_uz": topic.name_uz if topic else "Boshqa",
-                "topic_name_ru": topic.name_ru if topic else "Р”СЂСѓРіРѕРµ",
+                "topic_name_ru": topic.name_ru if topic else "Другое",
                 "topic_name_en": topic.name_en if topic else "Other",
                 "is_other": topic is None,
                 "subject_id": r["question__subject_id"],
@@ -130,7 +150,7 @@ def topic_stats(user, subject_id=None):
 
 
 def subject_stats(user):
-    """Fanlar bo'yicha aniqlik вЂ” radar chart o'qlari."""
+    """Fanlar bo'yicha aniqlik — radar chart o'qlari."""
     rows = (
         answered_queryset(user)
         .values("question__subject_id")
@@ -183,10 +203,45 @@ def subject_for_token(token):
     return Subject.active.filter(slug=text).first()
 
 
+class FreeSessionLimitReached(Exception):
+    """Raised when the daily free-tier session quota is exhausted."""
+
+
+def create_weak_practice_session(user, pool, subject=None):
+    """Create a weak-topic session under the same quota rules as /sessions/.
+
+    The daily-limit check is a read-then-create, so it must run inside a
+    transaction with the user row locked — otherwise concurrent requests all
+    observe "one slot left" and all create a session, bypassing the quota.
+    Sharing one code path with ``PracticeSessionViewSet.create`` keeps the two
+    entry points from drifting apart again.
+    """
+    from django.db import transaction
+
+    from django.contrib.auth import get_user_model
+
+    from .models import PracticeSession
+
+    with transaction.atomic():
+        get_user_model().objects.select_for_update().get(pk=user.pk)
+        if user.role != user.Role.TEACHER and not user.is_staff:
+            allowed, _remaining = premium_services.can_start_session(user)
+            if not allowed:
+                raise FreeSessionLimitReached
+        from .views import create_practice_session
+
+        return create_practice_session(
+            user,
+            pool,
+            mode=PracticeSession.Mode.PRACTICE,
+            subject=subject,
+        )
+
+
 class _BaseWeakSkillView(APIView):
     """Faqat o'z statistikasini ko'radigan foydalanuvchilar uchun.
 
-    So'rovda foydalanuvchi id hech qayerda qabul qilinmaydi вЂ” doim
+    So'rovda foydalanuvchi id hech qayerda qabul qilinmaydi — doim
     ``request.user`` ishlatiladi, ya'ni boshqa foydalanuvchi ma'lumotiga
     yo'l yo'q (anonim so'rovga DRF 401 beradi).
     """
@@ -237,8 +292,14 @@ def topic_history(user, subject_id, days=14):
 
 
 class WeakSkillRadarView(_BaseWeakSkillView):
-    """GET /api/weak-skills/ вЂ” fanlar radari va eng zaif mavzular."""
+    """GET /api/weak-skills/ — fanlar radari va eng zaif mavzular."""
 
+    # Each call runs two GROUP BY scans over the caller's whole answer history,
+    # so it is rate-limited like the other analytics reads ("stats", 60/min)
+    # and cached briefly (see WEAK_CACHE_SECONDS).
+    throttle_scope = "stats"
+
+    @method_decorator(cache_page(WEAK_CACHE_SECONDS))
     def get(self, request):
         is_premium = premium_services.is_premium(request.user)
         subjects = subject_stats(request.user)
@@ -249,7 +310,7 @@ class WeakSkillRadarView(_BaseWeakSkillView):
             {
                 "subjects": subjects,
                 "weak_topics": visible,
-                # Bepul tarifda yashirilgan mavzular soni вЂ” CTA uchun.
+                # Bepul tarifda yashirilgan mavzular soni — CTA uchun.
                 "hidden_weak_topics": max(0, len(weak) - len(visible)),
                 "can_practice": is_premium,
                 "has_data": bool(subjects),
@@ -259,8 +320,13 @@ class WeakSkillRadarView(_BaseWeakSkillView):
 
 
 class WeakSkillSubjectView(_BaseWeakSkillView):
-    """GET /api/weak-skills/<fan>/ вЂ” tanlangan fan ichidagi mavzular."""
+    """GET /api/weak-skills/<fan>/ — tanlangan fan ichidagi mavzular."""
 
+    # Heaviest read in the app: topic stats plus, for PRO, a per-day history
+    # aggregate — three scans of the answer history per request.
+    throttle_scope = "stats"
+
+    @method_decorator(cache_page(WEAK_CACHE_SECONDS))
     def get(self, request, subject):
         target = subject_for_token(subject)
         if target is None:
@@ -313,16 +379,18 @@ class WeakPracticeSerializer(serializers.Serializer):
 
 
 class WeakSkillPracticeView(_BaseWeakSkillView):
-    """POST /api/weak-skills/practice/ вЂ” zaif mavzulardan mashq sessiyasi.
+    """POST /api/weak-skills/practice/ — zaif mavzulardan mashq sessiyasi.
 
     Sessiya mavjud mashq tizimi orqali yaratiladi (javob shakli ham bir xil),
     shuning uchun frontend uchun yangi oynani o'ylab topish kerak emas.
-    Bepul tarifga kunlik sessiya limiti ham qo'llaniladi вЂ” radar yo'li limitni
+    Bepul tarifga kunlik sessiya limiti ham qo'llaniladi — radar yo'li limitni
     chetlab o'tmasligi kerak.
     """
 
+    throttle_scope = "answers"
+
     def post(self, request):
-        from .views import create_practice_session, session_payload
+        from .views import session_payload
 
         serializer = WeakPracticeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -332,7 +400,7 @@ class WeakSkillPracticeView(_BaseWeakSkillView):
         topic_ids = list(data.get("topic_ids") or [])
         subject_id = data.get("subject")
         if topic_ids:
-            # "Zaif mavzular bo'yicha mashq" вЂ” PRO imkoniyati.
+            # "Zaif mavzular bo'yicha mashq" — PRO imkoniyati.
             if not is_premium:
                 return Response(
                     {
@@ -360,37 +428,34 @@ class WeakSkillPracticeView(_BaseWeakSkillView):
             )
 
         count = data.get("question_count") or getattr(settings, "WEAK_SKILL_PRACTICE_COUNT", 20)
-        pool = list(qs.order_by("?")[:count])
+        from .views import sample_questions
+
+        pool = sample_questions(qs, count)
         if not pool:
             return Response(
                 {"detail": "Bu mavzular uchun savollar mavjud emas."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Kunlik limit: radar yo'li ham oddiy /sessions/ bilan bir xil qoida.
-        if request.user.role != request.user.Role.TEACHER and not request.user.is_staff:
-            allowed, _remaining = premium_services.can_start_session(request.user)
-            if not allowed:
-                return Response(
-                    {
-                        "detail": (
-                            "Kunlik bepul sessiya limiti tugadi. Ertaga qayta urinib "
-                            "ko'ring yoki premium tarifga o'ting."
-                        ),
-                        "premium_required": True,
-                    },
-                    status=status.HTTP_402_PAYMENT_REQUIRED,
-                )
-
         subject = None
         if len({q.subject_id for q in pool}) == 1:
             subject = Subject.objects.filter(id=pool[0].subject_id).first()
-        session = create_practice_session(
-            request.user,
-            pool,
-            mode=PracticeSession.Mode.PRACTICE,
-            subject=subject,
-        )
+
+        # Kunlik limit: radar yo'li ham oddiy /sessions/ bilan bir xil qoida va
+        # bir xil atomik blok bilan tekshiriladi.
+        try:
+            session = create_weak_practice_session(request.user, pool, subject=subject)
+        except FreeSessionLimitReached:
+            return Response(
+                {
+                    "detail": (
+                        "Kunlik bepul sessiya limiti tugadi. Ertaga qayta urinib "
+                        "ko'ring yoki premium tarifga o'ting."
+                    ),
+                    "premium_required": True,
+                },
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
         return Response(
             session_payload(session, first_question=True), status=status.HTTP_201_CREATED
         )
@@ -408,5 +473,5 @@ def weak_skills_text(user, limit=3):
     lines = ["<b>Zaif mavzular radar</b>"]
     for i, t in enumerate(topics, start=1):
         name = t["topic_name_uz"]
-        lines.append(f"{i}. {name} вЂ” {t['accuracy']}% ({t['wrong']} xato)")
+        lines.append(f"{i}. {name} — {t['accuracy']}% ({t['wrong']} xato)")
     return "\n".join(lines)

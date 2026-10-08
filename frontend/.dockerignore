@@ -2,8 +2,10 @@ node_modules
 .next
 out
 .env
-.env.local
+.env.*
 .git
-npm-debug.log*
+# Local dev server/build logs were being copied into the image by `COPY . .`.
+*.log
+build-log.txt
 *.tsbuildinfo
 next-env.d.ts

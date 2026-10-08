@@ -1,8 +1,8 @@
-﻿"""Zaif mavzular radari вЂ” hisoblash, ishonchlilik qoidasi, ro'li va tarif.
+"""Zaif mavzular radari — hisoblash, ishonchlilik qoidasi, ro'li va tarif.
 
 Manbalar:
-* ``practice/weak_skills.py`` вЂ” agregat mantiqi va endpointlar.
-* ``WEAK_SKILL_*`` sozlamalari вЂ” chegaralar ``config/settings.py`` da.
+* ``practice/weak_skills.py`` — agregat mantiqi va endpointlar.
+* ``WEAK_SKILL_*`` sozlamalari — chegaralar ``config/settings.py`` da.
 """
 
 from django.contrib.auth import get_user_model

@@ -3,6 +3,10 @@ import createNextIntlPlugin from "next-intl/plugin";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
+// Read at BUILD time — rewrites are compiled into .next/routes-manifest.json,
+// so setting BACKEND_URL at runtime cannot correct a wrong value. Inside the
+// compose network the backend is reachable as `backend:8000`; 127.0.0.1 is
+// only correct for `next dev` on a host with Django running locally.
 const backendUrl = process.env.BACKEND_URL ?? "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {

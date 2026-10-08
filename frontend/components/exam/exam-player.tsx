@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
-import { startPractice, fetchSessionQuestions, submitAnswer, finishSession, type SessionQuestion, type SessionReport, type SessionOption } from "@/lib/sessions";
+import { startPractice, fetchSessionQuestions, submitAnswer, finishSession, abandonSession, type SessionQuestion, type SessionReport, type SessionOption } from "@/lib/sessions";
 import { createCertificate, type CertificateStyle } from "@/lib/certificates";
 import { ApiError, extractFieldError } from "@/lib/api";
 import { localizedName, type Subject } from "@/lib/catalog";
 import { Paywall } from "@/components/premium/paywall";
 import { ReportList } from "@/components/report/report-list";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/components/providers/auth-provider";
 import { cn } from "@/lib/utils";
 
 function errorMessage(e: unknown, fallback: string): string {
@@ -55,6 +56,8 @@ export function ExamSetup({ subjects, onStart, onHistory }: ExamSetupProps) {
   const t = useTranslations("exam");
   const common = useTranslations("common");
   const locale = useLocale();
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
 
   // null subject = the unified exam (umumiy imtihon) across every subject.
   const [subject, setSubject] = useState<Subject | null>(null);
@@ -133,8 +136,10 @@ export function ExamSetup({ subjects, onStart, onHistory }: ExamSetupProps) {
                 key={n}
                 type="button"
                 onClick={() => {
+                  // The chosen time limit is deliberate: only the default
+                  // pairing (10 questions / 10 min) is set up front, so picking
+                  // a different count must not silently reset the duration.
                   setCount(n);
-                  setMinutes(n);
                 }}
                 className={cn(
                   "segment-option",
@@ -167,9 +172,19 @@ export function ExamSetup({ subjects, onStart, onHistory }: ExamSetupProps) {
 
         <button
           type="button"
-          disabled={!ready}
+          disabled={!ready || authLoading}
           className="btn btn-primary btn-lg w-full"
-          onClick={() => ready && onStart(unified ? null : subject, count, minutes)}
+          onClick={() => {
+            if (!ready) return;
+            // Guests can preview /mock-exams (public prefix), but starting a
+            // session needs an account — send them to login instead of letting
+            // the API answer an unexplained 401.
+            if (!user) {
+              router.replace(`/login?next=${encodeURIComponent("/mock-exams")}`);
+              return;
+            }
+            onStart(unified ? null : subject, count, minutes);
+          }}
         >
           {t("startExam")}
         </button>
@@ -243,12 +258,15 @@ function OptionRow({
   );
 }
 
-function TimerBadge({ remaining }: { remaining: number }) {
+function TimerBadge({ remaining, total }: { remaining: number; total: number }) {
   const t = useTranslations("exam");
   const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
   const ss = String(remaining % 60).padStart(2, "0");
-  const danger = remaining <= 300;
-  const warn = remaining <= 600 || danger;
+  // Proportional to the chosen length: absolute 5/10-minute cutoffs painted a
+  // 5-minute exam red from the very first second while a 60-minute one stayed
+  // calm far too long. Floors keep a short exam from flashing both states.
+  const danger = remaining <= Math.max(30, Math.round(total * 0.1));
+  const warn = remaining <= Math.max(60, Math.round(total * 0.25)) || danger;
   return (
     <span className={cn("badge", danger ? "badge-danger pulse" : warn ? "badge-warning" : "badge-neutral")}>
       <ClockIcon />
@@ -292,6 +310,12 @@ export function ExamPlayer({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  // Bumped by the retry button so the load effect re-runs without remounting
+  // the whole player (which would throw the session away).
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  // The last question asks for confirmation before scoring — the submit keys
+  // already existed in i18n but nothing ever rendered them.
+  const [confirming, setConfirming] = useState(false);
   const [paywall, setPaywall] = useState(false);
   const [finishFailed, setFinishFailed] = useState(false);
   const [certStyle, setCertStyle] = useState<CertificateStyle | null>(null);
@@ -339,21 +363,29 @@ export function ExamPlayer({
     let ignore = false;
     (async () => {
       try {
-        const session = await startPractice({
-          subject: subject?.id ?? null,
-          question_count: questionCount,
-          mode: "exam",
-          duration_minutes: minutes,
-        });
-        sessionId.current = session.id;
-        if (session.deadline_at && !ignore) {
-          const serverDeadline = Date.parse(session.deadline_at);
-          if (!Number.isNaN(serverDeadline)) setDeadline(serverDeadline);
+        // Retry must not create a second session (that would spend another
+        // daily slot and orphan the first one): reuse the id when the start
+        // call already succeeded and only the questions call failed.
+        let id = sessionId.current;
+        if (id == null) {
+          const session = await startPractice({
+            subject: subject?.id ?? null,
+            question_count: questionCount,
+            mode: "exam",
+            duration_minutes: minutes,
+          });
+          id = session.id;
+          sessionId.current = session.id;
+          if (session.deadline_at) {
+            const serverDeadline = Date.parse(session.deadline_at);
+            if (!Number.isNaN(serverDeadline)) setDeadline(serverDeadline);
+          }
         }
-        const qs = await fetchSessionQuestions(session.id);
+        const qs = await fetchSessionQuestions(id);
         if (!ignore) {
           setQuestions(qs);
           setPending(false);
+          setLoadFailed(false);
         }
       } catch (e) {
         if (!ignore) {
@@ -371,7 +403,11 @@ export function ExamPlayer({
     return () => {
       ignore = true;
     };
-  }, [subject?.id, questionCount, minutes, common]);
+    // Deliberately no unmount cleanup that abandons the session: a refresh or
+    // a closed tab must not destroy an attempt the student may come back to.
+    // The server finishes an expired exam lazily when the list is read (see
+    // practice.views.expire_stale_sessions), so the row resolves itself.
+  }, [subject?.id, questionCount, minutes, common, loadAttempt]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -390,18 +426,41 @@ export function ExamPlayer({
   const question = questions[index];
 
   const submitCurrent = async () => {
-    const optId = selected[question.id];
+    // Confirmation is showing: Enter (or the button) is the "yes, finish".
+    if (confirming) {
+      await finish();
+      return;
+    }
+    const current = question;
+    if (!current) return;
+    const qid = current.id;
+    const optId = selected[qid];
     if (optId == null || !sessionId.current || submitting) return;
+    const isLast = index + 1 >= questions.length;
+    const previous = answers[qid];
+
+    // Already submitted and unchanged: nothing to send — advance, or ask
+    // before scoring when the paper ends here.
+    if (previous != null && previous === optId) {
+      if (isLast) setConfirming(true);
+      else setIndex((i) => Math.min(i + 1, questions.length - 1));
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await submitAnswer(sessionId.current, question.id, optId);
-      setAnswers((prev) => ({ ...prev, [question.id]: optId }));
+      await submitAnswer(sessionId.current, qid, optId);
+      // Covers both the first answer and a changed one: the progress dots let
+      // the student jump back, and the server accepts a replacement answer —
+      // silently dropping it left the UI showing a selection the server never
+      // recorded.
+      setAnswers((prev) => ({ ...prev, [qid]: optId }));
       setError(null);
-      if (!(index + 1 < questions.length)) {
-        finish();
+      setSubmitting(false);
+      if (isLast) {
+        setConfirming(true);
       } else {
         setIndex((i) => i + 1);
-        setSubmitting(false);
       }
     } catch (e) {
       // Server-side deadline hit: finish rather than showing a dead-end error.
@@ -417,25 +476,83 @@ export function ExamPlayer({
     }
   };
 
+  // submitCurrent is recreated on every render (it closes over the current
+  // question and index). Rather than depend on it — which would re-register the
+  // listener on every one of the per-second countdown renders — the handler
+  // calls the latest version through a ref kept in an effect.
+  const submitRef = useRef(submitCurrent);
+  useEffect(() => {
+    submitRef.current = submitCurrent;
+  });
+
+  // Leaving mid-exam must tell the server, not just navigate away. Without it
+  // the session stayed in_progress forever and appeared in the history list as
+  // a row that led nowhere. Abandoning is not finishing: no score, no report,
+  // no badges. The daily quota slot stays spent either way, since the questions
+  // were already served.
+  const [exiting, setExiting] = useState(false);
+  const exit = useCallback(async () => {
+    const id = sessionId.current;
+    setExiting(true);
+    if (id) {
+      try {
+        await abandonSession(id);
+      } catch {
+        // Abandoning is best-effort cleanup. If it fails the session stays
+        // in_progress server-side, which is the pre-existing behaviour, so
+        // navigating away is still better than trapping the student here.
+      }
+    }
+    onExit();
+  }, [onExit]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (finished) return;
+      // Modifier combos belong to the browser (Ctrl+R, Ctrl+W, Cmd+…) — an
+      // exam shortcut must never swallow them.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return;
+      }
       if (question && e.key >= "1" && e.key <= "9") {
         const idx = Number(e.key) - 1;
         const opt = question.options[idx];
-        if (opt) setSelected((prev) => ({ ...prev, [question.id]: opt.id }));
+        if (opt) {
+          setConfirming(false);
+          setSelected((prev) => ({ ...prev, [question.id]: opt.id }));
+        }
       } else if (e.key === "Enter" && question) {
+        // When focus sits on a real control, Enter must activate *that*
+        // control (cancel, retry, confirm) instead of firing the shortcut.
+        const active = document.activeElement;
+        if (
+          active instanceof HTMLButtonElement &&
+          !active.classList.contains("option-card")
+        ) {
+          return;
+        }
         e.preventDefault();
-        submitCurrent();
+        submitRef.current();
       } else if (e.key >= "a" && e.key <= "z") {
         const idx = e.key.charCodeAt(0) - 97;
         const opt = question?.options[idx];
-        if (opt) setSelected((prev) => ({ ...prev, [question.id]: opt.id }));
+        if (opt) {
+          setConfirming(false);
+          setSelected((prev) => ({ ...prev, [question.id]: opt.id }));
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [finished, question]);
 
   const answeredCount = Object.keys(answers).length;
 
@@ -546,16 +663,31 @@ export function ExamPlayer({
   }
 
   if (paywall) {
-    return <Paywall onBack={onExit} backLabel={common("back")} />;
+    return <Paywall onBack={exit} backLabel={common("back")} />;
   }
 
   if (loadFailed) {
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center gap-4 px-4">
         <span className="text-danger">{error ?? common("error")}</span>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onExit}>
-          {common("back")}
-        </button>
+        <div className="flex gap-3">
+          {/* Retrying reuses an already-created session (see the load effect),
+              so a transient network blip does not spend a second daily slot. */}
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setError(null);
+              setPending(true);
+              setLoadAttempt((k) => k + 1);
+            }}
+          >
+            {common("retry")}
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={exit}>
+            {common("back")}
+          </button>
+        </div>
       </div>
     );
   }
@@ -571,10 +703,10 @@ export function ExamPlayer({
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-5 px-4 py-8 sm:px-6">
       <div className="flex items-center justify-between gap-3">
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onExit}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={exit} disabled={exiting}>
           {common("cancel")}
         </button>
-        <TimerBadge remaining={remaining} />
+        <TimerBadge remaining={remaining} total={minutes * 60} />
       </div>
 
       {error ? (
@@ -611,8 +743,15 @@ export function ExamPlayer({
           <button
             key={q.id}
             type="button"
-            onClick={() => setIndex(i)}
+            onClick={() => {
+              setConfirming(false);
+              setIndex(i);
+            }}
             aria-label={`${t("question")} ${i + 1}`}
+            // Announced so a screen reader reports the segment's state, not just
+            // its position — the fill colour alone carries "answered".
+            aria-current={i === index ? "step" : undefined}
+            data-answered={answers[q.id] != null ? "true" : "false"}
             className={cn(
               "h-2 flex-1 rounded-full transition-colors",
               answers[q.id] != null
@@ -643,20 +782,59 @@ export function ExamPlayer({
               option={opt}
               selected={selected[question.id] === opt.id}
               state="default"
-              onSelect={() =>
-                setSelected((prev) => ({ ...prev, [question.id]: opt.id }))
-              }
+              onSelect={() => {
+                // Picking a different option withdraws the pending confirmation:
+                // otherwise "yes, finish" would score the previous submission.
+                setConfirming(false);
+                setSelected((prev) => ({ ...prev, [question.id]: opt.id }));
+              }}
             />
           ))}
         </div>
-        <button
-          type="button"
-          className={cn("btn btn-primary w-full", !selected[question.id] && "btn-disabled")}
-          onClick={submitCurrent}
-          disabled={submitting}
-        >
-          {index + 1 < questions.length ? common("next") : t("finish")}
-        </button>
+        {confirming ? (
+          <div
+            role="alertdialog"
+            aria-label={t("submitConfirmTitle")}
+            className="flex flex-col gap-3 rounded-xl border border-border bg-surface-subtle/60 p-4"
+          >
+            <div className="flex flex-col gap-1">
+              <p className="font-semibold">{t("submitConfirmTitle")}</p>
+              <p className="text-sm text-subtle">{t("submitConfirmText")}</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                className="btn btn-primary flex-1"
+                onClick={finish}
+                disabled={submitting}
+              >
+                {submitting ? common("loading") : t("submitYes")}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary flex-1"
+                onClick={() => setConfirming(false)}
+                disabled={submitting}
+              >
+                {common("cancel")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={cn(
+              "btn btn-primary w-full",
+              selected[question.id] == null && "btn-disabled"
+            )}
+            onClick={submitCurrent}
+            disabled={submitting || selected[question.id] == null}
+          >
+            {/* The last question submits and then asks for confirmation;
+                everywhere else the button advances. */}
+            {index + 1 < questions.length ? common("next") : t("finish")}
+          </button>
+        )}
         <p className="text-center text-xs text-subtle">{common("keyboardHints")}</p>
       </div>
     </div>

@@ -1,6 +1,8 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -242,6 +244,33 @@ class OnboardingPlanTests(OnboardingBaseTests):
         self.assertEqual(res.data["profile"]["daily_minutes"], 60)
         self.assertTrue(res.data["profile"]["needs_onboarding"] is False)
 
+    def test_plan_get_does_not_query_per_item(self):
+        """The plan payload must not grow the query count with its item count.
+
+        Every day item resolves a subject and a topic. Resolving them one at a
+        time made a 7-day, 3-subject plan issue two queries per item; the
+        serializer now batches them, so the count is bounded by the plan's own
+        size plus a fixed overhead.
+        """
+        self.client.post(
+            "/api/onboarding/",
+            self._payload(subjects=[self.math.id, self.lang.id], daily_minutes=120),
+            format="json",
+        )
+        plan = OnboardingPlan.objects.get()
+        item_count = sum(len(d["items"]) for d in plan.days)
+        self.assertGreater(item_count, 6, "test needs a multi-item plan")
+
+        with CaptureQueriesContext(connection) as queries:
+            res = self.client.get("/api/onboarding/plan/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        # Profile (3), plan (1), direction+university (2), subjects (1) and the
+        # two batched brief queries. Deliberately well under the per-item cost.
+        self.assertLessEqual(len(queries), 12)
+        self.assertEqual(
+            sum(len(d["items"]) for d in res.data["days"]), item_count
+        )
+
     def test_resubmitting_replaces_previous_plan(self):
         self.client.post("/api/onboarding/", self._payload(), format="json")
         self.client.post(
@@ -333,3 +362,74 @@ class OnboardingWeakSubjectTests(OnboardingBaseTests):
             "/api/onboarding/", self._payload(subjects=[self.lang.id]), format="json"
         )
         self.assertEqual(OnboardingPlan.objects.get().weak_subject_ids, [])
+
+    def _abandoned_answer(self, subject, question, option_is_correct=False):
+        """An answer inside a session the student walked away from."""
+        session = PracticeSession.objects.create(
+            user=self.user,
+            subject=subject,
+            status=PracticeSession.Status.ABANDONED,
+            question_count=1,
+            finished_at=None,
+        )
+        return PracticeAnswer.objects.create(
+            session=session,
+            question=question,
+            selected_option=question.options.get(is_correct=option_is_correct),
+            is_correct=option_is_correct,
+        )
+
+    def test_abandoned_session_does_not_mark_subject_weak(self):
+        """The radar ignores abandoned attempts, so the plan must too.
+
+        Otherwise the wizard weights the plan towards subjects the student
+        never actually finished practising, and the two screens contradict
+        each other about what "weak" means.
+        """
+        weak_q = _question(self.lang, "Tashlab ketilgan urinishdagi savol")
+        for _ in range(6):
+            self._abandoned_answer(self.lang, weak_q)
+
+        self.client.post(
+            "/api/onboarding/",
+            self._payload(subjects=[self.lang.id]),
+            format="json",
+        )
+        self.assertEqual(OnboardingPlan.objects.get().weak_subject_ids, [])
+
+    def test_abandoned_correct_answer_does_not_count_as_mastered(self):
+        """The inverse guard: quitting must not erase a genuine weak subject."""
+        weak_q = _question(self.lang, "Avval xato, keyin tashlab ketilgan")
+        for _ in range(6):
+            self._wrong_answer(self.lang, weak_q)
+        # The correct answer exists, but only inside an abandoned attempt.
+        self._abandoned_answer(self.lang, weak_q, option_is_correct=True)
+
+        self.client.post(
+            "/api/onboarding/",
+            self._payload(subjects=[self.lang.id]),
+            format="json",
+        )
+        self.assertEqual(OnboardingPlan.objects.get().weak_subject_ids, [self.lang.id])
+
+    def test_abandoned_answers_never_change_the_daily_split(self):
+        """The generated plan itself must stay evenly weighted, not just the flag."""
+        weak_q = _question(self.lang, "Tashlab ketilgan urinishdagi savol")
+        good_q = _question(self.math, "Kuchli fan savoli")
+        for _ in range(8):
+            self._abandoned_answer(self.lang, weak_q)
+        self._wrong_answer(self.math, good_q, option_is_correct=True)
+
+        self.client.post(
+            "/api/onboarding/",
+            self._payload(subjects=[self.math.id, self.lang.id]),
+            format="json",
+        )
+        plan = OnboardingPlan.objects.get()
+        per_subject = {}
+        for day in plan.days:
+            for item in day["items"]:
+                per_subject[item["subject_id"]] = (
+                    per_subject.get(item["subject_id"], 0) + item["questions"]
+                )
+        self.assertEqual(per_subject[self.lang.id], per_subject[self.math.id])

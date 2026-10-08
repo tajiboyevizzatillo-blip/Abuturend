@@ -39,6 +39,12 @@ class Payment(TimeStampedModel):
     )
     # Payme transaction id / Click click_trans_id once the gateway sees it.
     gateway_ref = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    # Locale-prefixed path the student came from (e.g. "/ru/premium/payment/7/").
+    # Snapshotted at checkout so the polling endpoint can rebuild the exact same
+    # gateway URL later. Without it the status endpoint regenerated the link
+    # without a locale, so reopening the gateway dropped a Russian or English
+    # student onto the Uzbek page mid-payment.
+    return_path = models.CharField(max_length=128, blank=True, default="")
     # Gateway timestamps (ms) and other protocol state (Payme state, etc).
     meta = models.JSONField(default=dict, blank=True)
     paid_at = models.DateTimeField(null=True, blank=True)

@@ -17,6 +17,10 @@ class PracticeSession(models.Model):
     class Status(models.TextChoices):
         IN_PROGRESS = "in_progress", "Jarayonda"
         FINISHED = "finished", "Yakunlangan"
+        # Started but given up on (student left the player, or the tab closed
+        # for good). Distinct from FINISHED so an abandoned attempt is never
+        # scored, never earns badges, and never counts toward statistics.
+        ABANDONED = "abandoned", "Tashlab ketilgan"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

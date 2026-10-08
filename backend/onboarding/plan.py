@@ -19,7 +19,7 @@ from datetime import timedelta
 from django.db.models import Count
 from django.utils import timezone
 
-from practice.models import PracticeAnswer
+from practice.models import PracticeAnswer, PracticeSession
 from questions.models import Question
 
 PLAN_DAYS = 7
@@ -36,17 +36,36 @@ LEVEL_FACTORS = {
 }
 # Weak subjects take this share of the plan instead of an even split.
 WEAK_WEIGHT = 1.6
+
+
 def weak_subject_ids(user, limit=3):
-    """Subject ids ordered by unmastered wrong answers (most weak first)."""
+    """Subject ids ordered by unmastered wrong answers (most weak first).
+
+    Only finished sessions count, matching ``practice.weak_skills`` and the XP
+    math in ``gamification.services``. Counting abandoned attempts here made the
+    wizard's plan disagree with the radar shown right next to it: a student who
+    quit three sessions mid-way was shown a plan weighted towards subjects they
+    had never actually finished practising.
+    """
+    # Subquery, not a Python list: a student with thousands of mastered
+    # questions used to ship every id to the database inside a NOT IN clause
+    # (and materialize them all in memory first).
+    mastered = PracticeAnswer.objects.filter(
+        session__user=user,
+        session__status=PracticeSession.Status.FINISHED,
+        is_correct=True,
+        selected_option__isnull=False,
+    ).values("question_id")
     rows = (
         PracticeAnswer.objects.filter(
             session__user=user,
+            session__status=PracticeSession.Status.FINISHED,
             is_correct=False,
             question__is_active=True,
             question__status=Question.Status.PUBLISHED,
             selected_option__isnull=False,
         )
-        .exclude(question_id__in=mastered_question_ids(user))
+        .exclude(question_id__in=mastered)
         .values("question__subject_id")
         .annotate(wrong=Count("id"))
         .order_by("-wrong")[:limit]
@@ -67,19 +86,10 @@ def weak_topic_ids(user, subject_ids, limit=8):
     wanted = set(subject_ids or [])
     if not wanted:
         return []
-    rows = [
-        t for t in topic_stats(user) if t["is_weak"] and t["topic_id"] and t["subject_id"] in wanted
-    ]
+    # The radar computes every subject; the plan only cares about the chosen
+    # ones, so the aggregate is filtered in SQL instead of in Python.
+    rows = [t for t in topic_stats(user, subject_ids=wanted) if t["is_weak"] and t["topic_id"]]
     return [t["topic_id"] for t in rows[:limit]]
-
-
-def mastered_question_ids(user):
-    """Question ids the student has since answered correctly (in any session)."""
-    return list(
-        PracticeAnswer.objects.filter(
-            session__user=user, is_correct=True, selected_option__isnull=False
-        ).values_list("question_id", flat=True)
-    )
 
 
 def daily_question_budget(daily_minutes: int, level: str) -> int:
@@ -107,15 +117,25 @@ def _weighted_split(total, weights):
     return shares
 
 
-def topics_for_subject(subject_id, limit=8):
-    """Topic ids of a subject, so consecutive plan days drill different ones."""
+def topics_by_subject(subject_ids, limit=8):
+    """``{subject_id: [topic ids]}`` in one query.
+
+    The plan used to call ``topics_for_subject`` once per subject — a per-fan
+    SELECT whose cost grew with every subject the wizard offered.
+    """
     from catalog.models import Topic
 
-    return list(
-        Topic.active.filter(subject_id=subject_id)
+    grouped = {sid: [] for sid in subject_ids}
+    rows = (
+        Topic.active.filter(subject_id__in=subject_ids)
         .order_by("sort_order", "id")
-        .values_list("id", flat=True)[:limit]
+        .values_list("subject_id", "id")
     )
+    for subject_id, topic_id in rows:
+        bucket = grouped.get(subject_id)
+        if bucket is not None and len(bucket) < limit:
+            bucket.append(topic_id)
+    return grouped
 
 
 def build_plan(profile):
@@ -146,7 +166,7 @@ def build_plan(profile):
         {"day": i + 1, "date": (today + timedelta(days=i)).isoformat(), "items": []}
         for i in range(span)
     ]
-    subject_topics = {sid: topics_for_subject(sid) for sid in subject_ids}
+    subject_topics = topics_by_subject(subject_ids)
     for sid in sorted(total_questions, key=lambda s: (-weights[s], s)):
         remaining = total_questions[sid]
         day_index = 0

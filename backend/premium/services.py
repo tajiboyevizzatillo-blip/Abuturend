@@ -5,9 +5,13 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import Subscription
+from .models import Subscription, SubscriptionPlan
 
 FREE_TIER_DAILY_LIMIT = 3
+
+# Distinguishes "caller has no subscription object" from "caller already
+# resolved it to None" — passing None must not trigger a second lookup.
+_UNSET = object()
 
 
 @transaction.atomic
@@ -38,32 +42,66 @@ def active_subscription(user):
     if not user or not user.is_authenticated:
         return None
     now = timezone.now()
+    # Ordered by remaining coverage rather than row age: renewals stack, so the
+    # newest row is not always the one that lasts longest. Ordering by -ends_at
+    # (NULLS FIRST, since an open-ended row outlasts everything) keeps the
+    # reported plan aligned with the actual entitlement.
     return (
         Subscription.objects.filter(user=user, starts_at__lte=now)
         .filter(Q(ends_at__isnull=True) | Q(ends_at__gt=now))
         .select_related("plan")
-        .order_by("-created_at")
+        .order_by("-ends_at", "-created_at")
         .first()
     )
 
 
-def is_premium(user):
-    return active_subscription(user) is not None
+def is_premium(user, sub=_UNSET):
+    """Paid-tier entitlement.
+
+    Entitlement is about the *tier*, not about merely owning a Subscription
+    row. ``POST /api/premium/subscribe/`` creates a real (free) Subscription
+    for the free plan, so a "has any row" check made every non-payer premium
+    and unlocked the PRO-only features behind weak_skills/practice and the
+    radar's paid topic limit.
+
+    ``sub`` lets a caller that already resolved the subscription reuse it
+    instead of re-running the query.
+    """
+    if sub is _UNSET:
+        sub = active_subscription(user)
+    return sub is not None and sub.plan.tier == SubscriptionPlan.Tier.PRO
 
 
-def daily_session_limit(user):
-    """Sessions a user may start per day; None means unlimited."""
-    sub = active_subscription(user)
+def daily_session_limit(user, sub=_UNSET):
+    """Sessions a user may start per day; None means unlimited.
+
+    The active plan's own cap is honored for both tiers, since operators
+    configure it that way deliberately. The one thing a non-payer may never
+    obtain is *unlimited* sessions: ``max_sessions_per_day=NULL`` only means
+    "no cap" for the paid tier. On the free tier NULL falls back to the
+    platform default rather than granting unlimited use for free.
+    """
+    if sub is _UNSET:
+        sub = active_subscription(user)
     if sub is not None:
         limit = sub.plan.max_sessions_per_day
-        if limit is None:
+        if limit is not None:
+            return limit
+        if sub.plan.tier == SubscriptionPlan.Tier.PRO:
             return None
-        # A paying plan that still carries a cap is honored as-is.
-        return limit
+        return FREE_TIER_DAILY_LIMIT
     return FREE_TIER_DAILY_LIMIT
 
 
 def sessions_started_today(user):
+    """Sessions started today, for the daily quota.
+
+    Abandoned sessions deliberately still count. A session is charged when it
+    is created, because creating it already sampled and served its questions —
+    the student saw the paper. Refunding the slot on abandon would let a free
+    user view unlimited questions without ever answering one, which is exactly
+    what the daily limit exists to bound.
+    """
     today = timezone.localdate()
     from practice.models import PracticeSession
 
@@ -72,9 +110,11 @@ def sessions_started_today(user):
     ).count()
 
 
-def remaining_sessions_today(user):
+def remaining_sessions_today(user, sub=_UNSET):
     """How many more sessions the user may start today. None = unlimited."""
-    limit = daily_session_limit(user)
+    if sub is _UNSET:
+        sub = active_subscription(user)
+    limit = daily_session_limit(user, sub)
     if limit is None:
         return None
     return max(0, limit - sessions_started_today(user))

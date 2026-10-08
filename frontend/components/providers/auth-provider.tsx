@@ -53,7 +53,7 @@ const PUBLIC_PREFIXES = [
   "/leaderboard",
 ];
 
-function isPublicPath(pathname: string): boolean {
+export function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
   return PUBLIC_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`)
@@ -63,9 +63,12 @@ function isPublicPath(pathname: string): boolean {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
-  // True only once /auth/me/ gave a definitive answer (user or 401/403).
-  // A network hiccup must not be mistaken for "logged out".
-  const [authChecked, setAuthChecked] = useState(false);
+  // True when /auth/me/ failed for a reason that says nothing about the session
+  // (offline, DNS, 5xx). fetchUser() returns null for a real 401/403 and
+  // re-throws otherwise, so this is how a network blip is told apart from being
+  // logged out — without it, one second of bad connectivity would bounce the
+  // student to the login form and throw away their typing.
+  const [authUnavailable, setAuthUnavailable] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -78,9 +81,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const u = await fetchUser();
       setUser(u);
-      setAuthChecked(true);
+      setAuthUnavailable(false);
     } catch {
       // Transient failure: keep whatever user we already know.
+      setAuthUnavailable(true);
     } finally {
       setLoading(false);
     }
@@ -92,10 +96,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then((u) => {
         if (!active) return;
         setUser(u);
-        setAuthChecked(true);
+        setAuthUnavailable(false);
       })
       .catch(() => {
-        // Transient failure: keep whatever user we already know.
+        if (active) setAuthUnavailable(true);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -105,10 +109,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Redirect once the check has *completed* and produced a real answer. The
+  // original gate required a separate `authChecked` flag, which stayed false
+  // whenever /auth/me/ failed for a network reason — leaving a logged-out
+  // visitor stuck on a protected page with no user and no way forward. That
+  // flag is gone; `authUnavailable` now covers the one case where "no user" is
+  // NOT evidence of being logged out, so a transient outage no longer discards
+  // a signed-in session.
   useEffect(() => {
-    if (loading || !authChecked || user || isPublicPath(pathname)) return;
+    if (loading || user || authUnavailable || isPublicPath(pathname)) return;
     router.replace(`/login?next=${encodeURIComponent(pathname)}`);
-  }, [loading, authChecked, user, pathname, router]);
+  }, [loading, user, authUnavailable, pathname, router]);
 
   // Onboarding gate: one status request per session, then the redirect.
   const [onboardingChecked, setOnboardingChecked] = useState(false);

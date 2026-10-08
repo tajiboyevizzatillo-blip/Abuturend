@@ -16,8 +16,32 @@ def _lang_from_path(path):
     return head if head in LOCALES else "uz"
 
 
+def _normalize_return_path(raw, payment_id):
+    """Resolve the frontend's return-path template into a real path.
+
+    The frontend sends a locale-prefixed template such as
+    "/ru/premium/payment/{id}/". ``{id}`` is substituted server-side with the
+    real payment id, and a missing path falls back to the unprefixed result
+    page. Shared by checkout and status so both build the same URL.
+    """
+    path = raw or ""
+    if "{id}" in path:
+        path = path.replace("{id}", str(payment_id))
+    if not path:
+        path = f"/premium/payment/{payment_id}/"
+    if not path.endswith("/"):
+        path += "/"
+    return path
+
+
 def _status_context(request, payment):
-    path = f"/premium/payment/{payment.id}/"
+    """Gateway URL context for the polling endpoint.
+
+    Uses the path captured at checkout rather than rebuilding a locale-less
+    one, so "reopen the payment page" keeps the student in their language and
+    the gateway still sends them back to the right route.
+    """
+    path = _normalize_return_path(payment.return_path, payment.id)
     return {
         "return_url": request.build_absolute_uri(path),
         "lang": _lang_from_path(path),
@@ -39,22 +63,20 @@ class CheckoutView(APIView):
         serializer.is_valid(raise_exception=True)
         plan = serializer.validated_data["plan_code"]
         provider = serializer.validated_data["provider"]
-        return_path = serializer.validated_data.get("return_path") or ""
 
         payment = create_checkout(request.user, plan, provider)
-        if not return_path:
-            return_path = f"/premium/payment/{payment.id}/"
-        elif "{id}" in return_path:
-            # Frontend sends a locale-prefixed template such as
-            # "/ru/premium/payment/{id}/" — substitute the real payment id.
-            return_path = return_path.replace("{id}", str(payment.pk))
-        if not return_path.endswith("/"):
-            return_path += "/"
+        return_path = _normalize_return_path(
+            serializer.validated_data.get("return_path"), payment.pk
+        )
+        # ``create_checkout`` reuses an existing pending row, so a student who
+        # starts over from a different language must overwrite the old path.
+        if payment.return_path != return_path:
+            payment.return_path = return_path
+            payment.save(update_fields=["return_path", "updated_at"])
         return_url = request.build_absolute_uri(return_path)
 
         data = PaymentSerializer(
-            payment,
-            context={"return_url": return_url, "lang": _lang_from_path(return_path)},
+            payment, context={"return_url": return_url, "lang": _lang_from_path(return_path)}
         ).data
         data["return_url"] = return_url
         return Response(data, status=status.HTTP_201_CREATED)

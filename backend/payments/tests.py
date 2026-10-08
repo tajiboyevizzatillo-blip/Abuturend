@@ -4,6 +4,7 @@ import json
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework import status
@@ -52,6 +53,12 @@ def click_sign(payload, complete=False, merchant_prepare_id=""):
 @override_settings(**GATEWAY_SETTINGS)
 class CheckoutTests(APITestCase):
     def setUp(self):
+        # Throttle history lives in LocMemCache, which the test runner does not
+        # reset, and each test's rolled-back transaction reuses the same user
+        # pk. Without this the bucket is shared by every test in the process and
+        # the "checkout" scope (20/min) starts answering 429 part-way through the
+        # suite, in tests that have nothing to do with rate limiting.
+        cache.clear()
         self.user = User.objects.create_user(
             username="payer", password="Passw0rd!", role=User.Role.STUDENT
         )
@@ -160,6 +167,63 @@ class CheckoutTests(APITestCase):
         receipt = base64.b64decode(res.data["payment_url"][len(prefix):]).decode()
         self.assertIn("/ru/premium/payment/", receipt)
 
+    def test_checkout_accepts_plain_payment_page_path(self):
+        res = self.client.post(
+            "/api/payments/checkout/",
+            {
+                "plan_code": "pro-monthly",
+                "provider": "payme",
+                "return_path": "/uz/premium/payment/{id}",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertIn(f"/uz/premium/payment/{res.data['id']}", res.data["return_url"])
+
+    def test_checkout_rejects_backslash_redirect(self):
+        """Browsers normalise `\\` to `/`, so `/\\/evil.com` is an open redirect.
+
+        The value is handed to the payment gateway as the post-payment redirect,
+        which makes it a phishing vector delivered through a trusted domain.
+        """
+        for hostile in (
+            "/\\/evil.com",
+            "/uz\\evil.com",
+            "/uz/premium/payment/\\evil.com",
+            "//evil.com",
+            "https://evil.com",
+            "/dashboard",
+            "/uz/premium/payment/1\r\nSet-Cookie: x=1",
+        ):
+            res = self.client.post(
+                "/api/payments/checkout/",
+                {
+                    "plan_code": "pro-monthly",
+                    "provider": "payme",
+                    "return_path": hostile,
+                },
+                format="json",
+            )
+            self.assertEqual(
+                res.status_code,
+                status.HTTP_400_BAD_REQUEST,
+                msg=f"accepted hostile return_path: {hostile!r}",
+            )
+
+    def test_checkout_rejects_pending_payment_when_return_path_invalid(self):
+        res = self.client.post(
+            "/api/payments/checkout/",
+            {
+                "plan_code": "pro-monthly",
+                "provider": "payme",
+                "return_path": "/\\/evil.com",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        # A rejected request must not leave a payment row behind.
+        self.assertFalse(Payment.objects.filter(user=self.user).exists())
+
     def test_checkout_reuses_pending_payment(self):
         first = self.client.post(
             "/api/payments/checkout/",
@@ -191,6 +255,90 @@ class CheckoutTests(APITestCase):
         self.client.force_login(self.other)
         foreign = self.client.get(f"/api/payments/{payment_id}/")
         self.assertEqual(foreign.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_status_endpoint_preserves_checkout_locale(self):
+        """Polling must return the same localised gateway link as checkout.
+
+        The payment page reopens the gateway from the polled payload. Before
+        ``return_path`` was stored, the status endpoint rebuilt the link without
+        a locale, so a student who checked out in Russian was silently sent to
+        the Uzbek payment page the first time they pressed "reopen".
+        """
+        res = self.client.post(
+            "/api/payments/checkout/",
+            {
+                "plan_code": "pro-monthly",
+                "provider": "payme",
+                "return_path": "/ru/premium/payment/{id}/",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        payment_id = res.data["id"]
+
+        polled = self.client.get(f"/api/payments/{payment_id}/")
+        self.assertEqual(polled.status_code, status.HTTP_200_OK)
+        # Same URL as checkout handed out — locale intact.
+        self.assertEqual(polled.data["payment_url"], res.data["payment_url"])
+        self.assertEqual(
+            polled.data["payment_url"], self.client.get(
+                f"/api/payments/{payment_id}/"
+            ).data["payment_url"]
+        )
+        receipt = base64.b64decode(
+            polled.data["payment_url"][len("https://checkout.paycom.uz/"):]
+        ).decode()
+        self.assertIn("l=ru", receipt)
+        self.assertIn(f"/ru/premium/payment/{payment_id}/", receipt)
+
+    def test_status_endpoint_stable_without_return_path(self):
+        """A checkout with no path still resolves to the plain result page."""
+        res = self.client.post(
+            "/api/payments/checkout/",
+            {"plan_code": "pro-monthly", "provider": "payme"},
+            format="json",
+        )
+        payment_id = res.data["id"]
+        polled = self.client.get(f"/api/payments/{payment_id}/")
+        self.assertEqual(polled.status_code, status.HTTP_200_OK)
+        self.assertEqual(polled.data["payment_url"], res.data["payment_url"])
+        receipt = base64.b64decode(
+            polled.data["payment_url"][len("https://checkout.paycom.uz/"):]
+        ).decode()
+        self.assertIn("l=uz", receipt)
+        self.assertIn(f"c=http://testserver/premium/payment/{payment_id}/", receipt)
+
+    def test_recheckout_from_another_locale_updates_stored_path(self):
+        """A reused pending row must follow the student's latest language."""
+        first = self.client.post(
+            "/api/payments/checkout/",
+            {
+                "plan_code": "pro-monthly",
+                "provider": "payme",
+                "return_path": "/ru/premium/payment/{id}/",
+            },
+            format="json",
+        )
+        payment_id = first.data["id"]
+        self.client.post(
+            "/api/payments/checkout/",
+            {
+                "plan_code": "pro-monthly",
+                "provider": "payme",
+                "return_path": "/en/premium/payment/{id}/",
+            },
+            format="json",
+        )
+        payment = Payment.objects.get(pk=payment_id)
+        self.assertEqual(payment.return_path, f"/en/premium/payment/{payment_id}/")
+
+        receipt = base64.b64decode(
+            self.client.get(f"/api/payments/{payment_id}/").data["payment_url"][
+                len("https://checkout.paycom.uz/"):
+            ]
+        ).decode()
+        self.assertIn("l=en", receipt)
+        self.assertIn(f"/en/premium/payment/{payment_id}/", receipt)
 
 
 @override_settings(**GATEWAY_SETTINGS)
@@ -478,6 +626,9 @@ class ClickWebhookTests(APITestCase):
 
 class SubscribePaidRequiresCheckoutTests(APITestCase):
     def setUp(self):
+        # SubscribeView shares the "checkout" throttle scope with CheckoutView,
+        # and the reused user pk makes both classes hit the same bucket.
+        cache.clear()
         self.user = User.objects.create_user(
             username="freekid", password="Passw0rd!", role=User.Role.STUDENT
         )

@@ -1,6 +1,6 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -13,6 +13,7 @@ import { fetchSubject } from "@/lib/catalog";
 import { ApiError } from "@/lib/api";
 import type { PracticeSession } from "@/lib/sessions";
 import {
+  abandonSession,
   fetchCurrent,
   finishSession,
   startPractice,
@@ -113,7 +114,7 @@ export function PracticePlayer({
   const [selected, setSelected] = useState<number | null>(null);
   const [result, setResult] = useState<AnswerResult | null>(null);
   // The session (and the daily free quota) is only created on an explicit
-  // Start click вЂ” merely opening the page must not burn a session.
+  // Start click — merely opening the page must not burn a session.
   const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +173,7 @@ export function PracticePlayer({
       .catch((e) => {
         if (ignore) return;
         if (e instanceof ApiError && e.status === 402) {
-          // Daily free limit reached вЂ” a plan is needed, retrying won't help.
+          // Daily free limit reached — a plan is needed, retrying won't help.
           setPaywall(true);
           return;
         }
@@ -206,7 +207,12 @@ export function PracticePlayer({
         // Recoverable: keep the question and the selection so the student can
         // just press the button again.
         setError(t("error"));
-        setRetry(answer);
+        // Wrapped in an arrow on purpose: passing `answer` directly would hand
+        // React a function where it expects a state updater, so React would
+        // *call* it with the previous state and store its undefined return.
+        // The retry callback then silently executed as a side effect and the
+        // Retry button never rendered — the whole error path was dead code.
+        setRetry(() => answer);
       })
       .finally(() => {
         answering.current = false;
@@ -238,7 +244,7 @@ export function PracticePlayer({
       })
       .catch(() => {
         setError(t("error"));
-        setRetry(next);
+        setRetry(() => next);
       })
       .finally(() => {
         advancing.current = false;
@@ -281,14 +287,33 @@ export function PracticePlayer({
     return "idle";
   };
 
+  // Leaving mid-session must tell the server, same as the exam player. Without
+  // it a practice session stays in_progress forever: it can never be resumed
+  // and it occupies a slot in the history list as a dead row.
+  const [abandoning, setAbandoning] = useState(false);
+  const exit = useCallback(async () => {
+    setAbandoning(true);
+    try {
+      if (sessionId) await abandonSession(sessionId);
+    } catch {
+      // Best-effort cleanup; navigating away beats trapping the student.
+    }
+    router.push(pageLink);
+  }, [sessionId, pageLink, router]);
+
   return (
     <ProtectedShell>
       <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6">
         {/* Topbar */}
         <div className="mb-5 flex items-center justify-between gap-3">
-          <Link href={subjectLink} className="btn btn-ghost btn-sm">
-            в†ђ {t("back")}
-          </Link>
+          <button
+            type="button"
+            onClick={exit}
+            disabled={abandoning}
+            className="btn btn-ghost btn-sm"
+          >
+            ← {t("back")}
+          </button>
           <div className="flex items-center gap-3">
             {streak >= 2 ? (
               <span className="badge badge-warning gap-1 px-2.5 py-1">
@@ -316,7 +341,7 @@ export function PracticePlayer({
         </div>
 
         {paywall ? (
-          <Paywall onBack={() => window.history.back()} backLabel={t("back")} />
+          <Paywall onBack={exit} backLabel={t("back")} />
         ) : fatal ? (
           <div className="card flex flex-col items-center gap-4 p-10 text-center">
             <p className="text-muted">{error}</p>
@@ -325,7 +350,7 @@ export function PracticePlayer({
             </Link>
           </div>
         ) : !started ? (
-          /* Landing card вЂ” the session (and daily quota) is only created
+          /* Landing card — the session (and daily quota) is only created
              when the student explicitly starts. */
           <Card className="pop flex flex-col items-center gap-5 p-10 text-center">
             <span className="badge badge-primary">DTM</span>
@@ -335,12 +360,12 @@ export function PracticePlayer({
             <p className="max-w-md font-serif italic text-muted">
               {mistakesMode
                 ? mis("startNotice", { count: questionIds?.length ?? 0 })
-                : exam("startNotice")}
+                : exam("startNotice", { count: questionCount ?? 10 })}
             </p>
             <Button
               onClick={() => {
                 // Guests can preview this page (public prefix) but a session
-                // needs an account вЂ” send them to login instead of a spinner.
+                // needs an account — send them to login instead of a spinner.
                 if (!user) {
                   router.replace(`/login?next=${encodeURIComponent(pageLink)}`);
                   return;
@@ -401,7 +426,7 @@ export function PracticePlayer({
                 ))}
               </div>
             ) : score !== null ? (
-              /* Finish вЂ” score ring + summary (Quizzler-style) */
+              /* Finish — score ring + summary (Quizzler-style) */
               <Card className="pop flex flex-col items-center gap-6 p-10 text-center">
                 <div
                   className="relative h-36 w-36"
@@ -548,12 +573,12 @@ export function PracticePlayer({
             {!result ? (
               <Button onClick={answer} disabled={selected === null} className="mt-1">
                 {exam("submitAnswer")}
-                {selected !== null ? <span className="opacity-70">в†µ</span> : null}
+                {selected !== null ? <span className="opacity-70">↵</span> : null}
               </Button>
             ) : (
               <Button variant={result.is_correct ? "primary" : "secondary"} onClick={next} className="mt-1">
                 {progress.answered >= progress.total ? exam("finish") : t("next")}
-                <span className="opacity-70">в†µ</span>
+                <span className="opacity-70">↵</span>
               </Button>
             )}
           </div>

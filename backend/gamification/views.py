@@ -7,6 +7,7 @@ from .services import badges_payload, level_info, sync_badges, user_stats
 
 class BadgeListView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_scope = "stats"
 
     def get(self, request):
         stats = user_stats(request.user)
@@ -22,6 +23,9 @@ class BadgeListView(APIView):
 
 class BadgeCheckView(APIView):
     permission_classes = [IsAuthenticated]
+    # sync_badges runs several aggregates and this endpoint is called on page
+    # load as well as on every session finish, so it needs a limit of its own.
+    throttle_scope = "stats"
 
     def post(self, request):
         sync_badges(request.user)

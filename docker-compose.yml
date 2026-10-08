@@ -1,3 +1,19 @@
+# Production compose stack for Abiturend.
+#
+# Two invariants worth keeping in mind when editing this file:
+#   1. Secrets that must never be a known default use ${VAR:?msg}, which makes
+#      `docker compose up` fail loudly rather than booting with a guessable
+#      value. Do not soften these back to ${VAR:-default}.
+#   2. The frontend bakes /api rewrites at BUILD time, so BACKEND_URL is a build
+#      argument, not a runtime variable.
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   db:
     image: postgres:17-alpine
@@ -5,7 +21,9 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-abiturend}
       POSTGRES_USER: ${POSTGRES_USER:-abiturend}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abiturend}
+      # Required: a guessable database password is a latent hole the moment
+      # anything publishes port 5432.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -13,6 +31,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    <<: *logging
 
   backend:
     build: ./backend
@@ -21,7 +44,10 @@ services:
       db:
         condition: service_healthy
     environment:
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
+      # Required. The old `${DJANGO_SECRET_KEY:-change-me-in-production}`
+      # default was accepted by settings.py's fail-closed guard, so a fresh
+      # `docker compose up` booted production with a publicly known secret key.
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY must be set in .env}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-abituriyent.orgtrace.uz,localhost,127.0.0.1}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-https://abituriyent.orgtrace.uz}
@@ -31,14 +57,29 @@ services:
       DJANGO_SECURE_HSTS_SECONDS: ${DJANGO_SECURE_HSTS_SECONDS:-31536000}
       POSTGRES_DB: ${POSTGRES_DB:-abiturend}
       POSTGRES_USER: ${POSTGRES_USER:-abiturend}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abiturend}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      # Rate limiting keys on the client IP; with a single nginx hop in front,
+      # DRF must be told to read the forwarded header (see NUM_PROXIES).
+      DJANGO_NUM_PROXIES: ${DJANGO_NUM_PROXIES:-1}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       TELEGRAM_WEBHOOK_HOST: ${TELEGRAM_WEBHOOK_HOST:-}
+      # Previously never passed through, so the bot's /weak command always
+      # answered "not linked" and edits here had no effect.
+      TELEGRAM_LINKED_USER: ${TELEGRAM_LINKED_USER:-}
+      # Also previously never passed through: these are documented in
+      # .env.example and read by settings.py, but compose dropped them, so
+      # every tuning knob silently used its default.
+      WEAK_SKILL_MIN_ANSWERS: ${WEAK_SKILL_MIN_ANSWERS:-5}
+      WEAK_SKILL_THRESHOLD: ${WEAK_SKILL_THRESHOLD:-60}
+      WEAK_SKILL_TOPIC_LIMIT: ${WEAK_SKILL_TOPIC_LIMIT:-5}
+      WEAK_SKILL_FREE_TOPICS: ${WEAK_SKILL_FREE_TOPICS:-3}
+      WEAK_SKILL_PRACTICE_COUNT: ${WEAK_SKILL_PRACTICE_COUNT:-20}
+      LEADERBOARD_CACHE_SECONDS: ${LEADERBOARD_CACHE_SECONDS:-60}
       # To'lovlar (Payme / Click) — webhook'lari faqat backend'da ishlaydi.
       # Ikkalasi ham bo'sh qoldirilsa webhook fail-closed rad etiladi.
       PAYME_LOGIN: ${PAYME_LOGIN:-Paycom}
@@ -49,10 +90,13 @@ services:
       CLICK_MERCHANT_ID: ${CLICK_MERCHANT_ID:-}
       CLICK_SECRET_KEY: ${CLICK_SECRET_KEY:-}
       CLICK_PAY_URL: ${CLICK_PAY_URL:-https://my.click.uz/services/pay}
-      # Email (parol tiklash xatlari) — console backend lokal uchun, prod'da SMTP
+      # Email (parol tiklash xatlari) — console backend lokal uchun, prod'da SMTP.
+      # Defaults to console, which in production prints single-use password-reset
+      # tokens into the container log instead of delivering mail.
       DJANGO_EMAIL_BACKEND: ${DJANGO_EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
       DJANGO_EMAIL_HOST: ${DJANGO_EMAIL_HOST:-}
       DJANGO_EMAIL_PORT: ${DJANGO_EMAIL_PORT:-587}
+      DJANGO_EMAIL_USE_TLS: ${DJANGO_EMAIL_USE_TLS:-True}
       DJANGO_EMAIL_HOST_USER: ${DJANGO_EMAIL_HOST_USER:-}
       DJANGO_EMAIL_HOST_PASSWORD: ${DJANGO_EMAIL_HOST_PASSWORD:-}
       DJANGO_DEFAULT_FROM_EMAIL: ${DJANGO_DEFAULT_FROM_EMAIL:-noreply@abituriyent.orgtrace.uz}
@@ -60,6 +104,11 @@ services:
     volumes:
       - media:/app/media
       - static:/app/staticfiles
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+    <<: *logging
 
   mcp:
     build: ./backend
@@ -71,13 +120,13 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 256m
     environment:
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY must be set in .env}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
       POSTGRES_DB: ${POSTGRES_DB:-abiturend}
       POSTGRES_USER: ${POSTGRES_USER:-abiturend}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abiturend}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       # Fail closed: the bridge refuses every request unless a key is present.
@@ -85,25 +134,40 @@ services:
       MCP_ADMIN_API_KEY: ${MCP_ADMIN_API_KEY:-}
     expose:
       - "8001"
+    <<: *logging
 
   frontend:
     build:
       context: ./frontend
       args:
+        # Same-origin: the browser only ever calls /api on this origin.
         NEXT_PUBLIC_API_URL: /api
+        # Server-side rewrite target, baked into routes-manifest.json at build
+        # time. It used to be unset, so the compiled rewrite pointed at
+        # 127.0.0.1:8000 *inside this container* and would have failed with
+        # ECONNREFUSED for anything reaching Next on /api.
+        BACKEND_URL: http://backend:8000
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     environment:
       NEXT_PUBLIC_API_URL: /api
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    <<: *logging
 
   nginx:
     build:
       context: ./nginx
     restart: unless-stopped
     depends_on:
-      - frontend
-      - backend
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
@@ -112,6 +176,51 @@ services:
       - media:/srv/media
       - certbot-www:/var/www/certbot
       - certbot-certs:/etc/letsencrypt
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    <<: *logging
+
+  # TLS certificate renewal. nginx hard-requires
+  # /etc/letsencrypt/live/abituriyent.orgtrace.uz/{fullchain,privkey}.pem at
+  # startup and reads them only then, so without this service a fresh install
+  # cannot boot and a live certificate silently expires after 90 days.
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    volumes:
+      - certbot-www:/var/www/certbot
+      - certbot-certs:/etc/letsencrypt
+      # Docker socket + compose file, needed only so the renew deploy-hook can
+      # reload nginx (it reads the certificate files just once, at startup).
+      # This grants the certbot container control of the Docker daemon, a real
+      # privilege: acceptable because the image is upstream and the container
+      # runs no application code, but it is the one line here that widens the
+      # blast radius. To avoid it, remove both mounts and the --deploy-hook,
+      # keep the renew loop, and reload nginx from the host after a renewal
+      # shows up in the logs.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker-compose.yml:/workdir/docker-compose.yml:ro
+    working_dir: /workdir
+    # `&` (not `&amp;`): this is a YAML folded scalar, so an HTML entity would
+    # reach /bin/sh literally and sh would read `amp` as a command name.
+    # Bare `wait` rather than `wait $!`: `$!` is a bashism that busybox ash does
+    # not implement, and compose interpolation would mangle the `$` anyway.
+    # Bare `wait` is POSIX and waits for the backgrounded sleep, which keeps the
+    # `trap exit TERM` responsive to `docker stop`.
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do
+        certbot renew --webroot -w /var/www/certbot --quiet
+        --deploy-hook 'docker compose exec -T nginx nginx -s reload' || true;
+        sleep 12h & wait;
+      done"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    <<: *logging
 
 volumes:
   pgdata:

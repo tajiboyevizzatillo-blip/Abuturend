@@ -72,6 +72,11 @@ export function QuestionsManager() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  // Explicit open/closed state. It used to be derived from the form contents
+  // (`editingId !== null || form.text_uz !== ""`), which meant "New question"
+  // set editingId to null and an empty text_uz — so formOpen was false, the form
+  // never rendered, and creating a question was unreachable from the UI.
+  const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
   const load = () => {
@@ -121,6 +126,7 @@ export function QuestionsManager() {
 
   const startCreate = () => {
     setEditingId(null);
+    setCreating(true);
     setForm({
       ...EMPTY_FORM,
       subject: filterSubject || (subjects && subjects[0] ? String(subjects[0].id) : ""),
@@ -129,6 +135,7 @@ export function QuestionsManager() {
 
   const startEdit = (q: Question) => {
     setEditingId(q.id);
+    setCreating(false);
     setForm({
       subject: String(q.subject),
       text_uz: q.text_uz,
@@ -197,6 +204,7 @@ export function QuestionsManager() {
         await updateQuestion(editingId, input);
       }
       setEditingId(null);
+      setCreating(false);
       setForm(EMPTY_FORM);
       load();
     } catch (e) {
@@ -229,7 +237,7 @@ export function QuestionsManager() {
     }
   };
 
-  const formOpen = editingId !== null || form.text_uz !== "";
+  const formOpen = creating || editingId !== null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -401,6 +409,7 @@ export function QuestionsManager() {
               className="btn btn-secondary"
               onClick={() => {
                 setEditingId(null);
+                setCreating(false);
                 setForm(EMPTY_FORM);
               }}
             >

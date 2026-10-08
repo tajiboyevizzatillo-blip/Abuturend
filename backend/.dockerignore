@@ -1,8 +1,16 @@
 __pycache__
 *.pyc
 .env
+.env.*
 db.sqlite3
 staticfiles
 media
 .venv
 venv
+.git
+# Local development logs and captured test output: `COPY . .` would otherwise
+# ship them into the image layers.
+*.log
+*.txt
+!.env.example
+!requirements.txt

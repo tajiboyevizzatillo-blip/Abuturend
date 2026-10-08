@@ -37,7 +37,18 @@ class SubscriptionPlan(TimeStampedModel):
 
     @property
     def unlimited_sessions(self):
-        return self.max_sessions_per_day is None
+        """Whether this plan really grants uncapped daily sessions.
+
+        Only the paid tier can. `premium.services.daily_session_limit` refuses to
+        widen the cap for a free plan, so reporting True here would advertise
+        something the backend will not actually grant — and an operator who set
+        `max_sessions_per_day = NULL` on a free plan through the admin would see
+        the marketing copy silently contradict the enforced limit.
+        """
+        return (
+            self.max_sessions_per_day is None
+            and self.tier == SubscriptionPlan.Tier.PRO
+        )
 
 
 class Subscription(models.Model):

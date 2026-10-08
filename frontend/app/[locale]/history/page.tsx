@@ -7,7 +7,12 @@ import { ProtectedShell } from "@/components/layout/protected-shell";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchSessionList, type SessionListItem, type SessionMode } from "@/lib/sessions";
+import {
+  abandonSession,
+  fetchSessionList,
+  type SessionListItem,
+  type SessionMode,
+} from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 
 type ModeFilter = "all" | SessionMode;
@@ -78,6 +83,31 @@ export default function HistoryPage() {
   const [error, setError] = useState(false);
   const [mode, setMode] = useState<ModeFilter>("all");
   const [subjectId, setSubjectId] = useState<number | null | "all">("all");
+  const [abandoning, setAbandoning] = useState<number | null>(null);
+  const [abandonError, setAbandonError] = useState(false);
+
+  // Gives the student a way out of an attempt they cannot resume, instead of
+  // leaving it to occupy a daily slot forever.
+  const abandon = async (id: number) => {
+    setAbandoning(id);
+    setAbandonError(false);
+    try {
+      await abandonSession(id);
+      setRows((prev) =>
+        prev
+          ? prev.map((r) =>
+              r.id === id
+                ? { ...r, status: "abandoned" as const, finished_at: r.finished_at ?? r.started_at }
+                : r
+            )
+          : prev
+      );
+    } catch {
+      setAbandonError(true);
+    } finally {
+      setAbandoning(null);
+    }
+  };
 
   useEffect(() => {
     let ignore = false;
@@ -133,6 +163,9 @@ export default function HistoryPage() {
         </div>
 
         {error ? <Alert variant="danger">{common("error")}</Alert> : null}
+        {abandonError ? (
+          <Alert variant="danger">{t("abandonFailed")}</Alert>
+        ) : null}
 
         {/* Filters */}
         {rows && rows.length ? (
@@ -200,12 +233,17 @@ export default function HistoryPage() {
                 ? localName(r.subject, locale)
                 : exam("unifiedTitle");
               const done = r.status === "finished";
+              const abandoned = r.status === "abandoned";
               const inner = (
                 <>
                   <div
                     className={cn(
                       "relative h-14 w-14 shrink-0",
-                      done && (r.score_percent ?? 0) >= 60 ? "text-success" : "text-danger"
+                      abandoned
+                        ? "text-subtle"
+                        : done && (r.score_percent ?? 0) >= 60
+                          ? "text-success"
+                          : "text-danger"
                     )}
                   >
                     <div
@@ -217,7 +255,7 @@ export default function HistoryPage() {
                       aria-valuemax={100}
                     />
                     <div className="absolute inset-0 flex items-center justify-center text-xs font-bold tabular-nums">
-                      {done ? `${r.score_percent ?? 0}%` : "…"}
+                      {done ? `${r.score_percent ?? 0}%` : abandoned ? "—" : "…"}
                     </div>
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -241,20 +279,48 @@ export default function HistoryPage() {
                     </div>
                   </div>
                   <span
-                    className={cn("badge", done ? "badge-success" : "badge-warning")}
+                    className={cn(
+                      "badge",
+                      done
+                        ? "badge-success"
+                        : abandoned
+                          ? "badge-neutral"
+                          : "badge-warning"
+                    )}
                   >
-                    {done ? common("verified") : common("inProgress")}
+                    {done
+                      ? common("verified")
+                      : abandoned
+                        ? t("abandoned")
+                        : common("inProgress")}
                   </span>
                 </>
               );
+              // Only a finished session has results to open. An in-progress row used to be
+              // an inert div, which left a crashed or abandoned attempt as a
+              // dead end with no way to resume or clear it; an abandoned one is
+              // now a terminal state the server records.
               const rowClass = "card card-hover flex items-center gap-4 p-4 sm:p-5";
-              return done ? (
-                <Link key={r.id} href={`/results/${r.id}`} className={rowClass}>
-                  {inner}
-                </Link>
-              ) : (
+              if (done) {
+                return (
+                  <Link key={r.id} href={`/results/${r.id}`} className={rowClass}>
+                    {inner}
+                  </Link>
+                );
+              }
+              return (
                 <div key={r.id} className={rowClass}>
                   {inner}
+                  {abandoned ? null : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => abandon(r.id)}
+                      disabled={abandoning === r.id}
+                    >
+                      {abandoning === r.id ? common("loading") : t("abandon")}
+                    </Button>
+                  )}
                 </div>
               );
             })}

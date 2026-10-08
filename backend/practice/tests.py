@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import status
@@ -7,6 +8,11 @@ from rest_framework.test import APITestCase
 
 from catalog.models import Subject, Topic
 from practice.models import Certificate, PracticeAnswer, PracticeSession
+from practice.views import (
+    DEFAULT_EXAM_MINUTES,
+    LeaderboardView,
+    MAX_EXAM_MINUTES,
+)
 from questions.models import Question, QuestionOption
 
 User = get_user_model()
@@ -403,6 +409,47 @@ class PracticeApiTests(APITestCase):
         self.assertEqual(finish.status_code, status.HTTP_200_OK)
         self.assertEqual(finish.data["correct_answers"], 0)
 
+    def test_exam_duration_is_clamped_server_side(self):
+        """A client cannot buy itself a longer exam by asking for one."""
+        res = self.client.post(
+            "/api/sessions/",
+            {
+                "subject": self.subject.id,
+                "question_count": 2,
+                "mode": "exam",
+                "duration_minutes": 240,
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        session = PracticeSession.objects.get(pk=res.data["id"])
+        self.assertEqual(session.duration_minutes, MAX_EXAM_MINUTES)
+        remaining = session.deadline_at - timezone.now()
+        self.assertLess(remaining, timedelta(minutes=MAX_EXAM_MINUTES + 1))
+
+    def test_exam_without_duration_uses_the_default(self):
+        res = self.client.post(
+            "/api/sessions/",
+            {"subject": self.subject.id, "question_count": 2, "mode": "exam"},
+            format="json",
+        )
+        session = PracticeSession.objects.get(pk=res.data["id"])
+        self.assertEqual(session.duration_minutes, DEFAULT_EXAM_MINUTES)
+
+    def test_practice_session_has_no_deadline(self):
+        res = self.client.post(
+            "/api/sessions/",
+            {
+                "subject": self.subject.id,
+                "question_count": 2,
+                "mode": "practice",
+                "duration_minutes": 240,
+            },
+            format="json",
+        )
+        session = PracticeSession.objects.get(pk=res.data["id"])
+        self.assertIsNone(session.deadline_at)
+
     def test_topic_from_another_subject_rejected(self):
         other_subject = Subject.objects.create(
             name_uz="Fizika", slug="fizika", code="PH"
@@ -514,6 +561,21 @@ class PracticeApiTests(APITestCase):
         res = self.client.__class__().get("/api/leaderboard/")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data, [])
+
+    def test_leaderboard_declares_a_throttle_scope(self):
+        """The public leaderboard runs whole-table aggregates, so it must rate limit.
+
+        Asserted on configuration rather than by exhausting the bucket: DRF
+        throttle history lives in the (process-wide) cache and the test runner
+        reuses one process, so actually tripping the limit would leak into every
+        later leaderboard test in the suite.
+        """
+        self.assertEqual(LeaderboardView.throttle_scope, "public_read")
+        rates = settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
+        self.assertIn("public_read", rates)
+        self.assertEqual(
+            LeaderboardView.permission_classes[0].__name__, "AllowAny"
+        )
 
     def test_leaderboard_limit_param(self):
         for i in range(3):
@@ -785,14 +847,16 @@ class MistakesTests(APITestCase):
         QuestionOption.objects.create(question=q, text_uz="Xato", is_correct=False, sort_order=1)
         return q
 
-    def _answered(self, items, mode="practice"):
+    def _answered(self, items, mode="practice", status=None, finished_at=None):
         session = PracticeSession.objects.create(
             user=self.user,
             subject=self.subject,
             mode=mode,
             question_count=len(items),
-            status=PracticeSession.Status.FINISHED,
-            finished_at=timezone.now(),
+            status=status or PracticeSession.Status.FINISHED,
+            finished_at=(
+                finished_at if finished_at is not None else timezone.now()
+            ),
         )
         for q, ok in items:
             PracticeAnswer.objects.create(
@@ -879,6 +943,33 @@ class MistakesTests(APITestCase):
         self.assertTrue(item["is_mastered"])
         # Still part of the notebook total (it was answered wrongly at least once).
         self.assertEqual(res.data["total"], 1)
+
+    def test_mistakes_ignores_abandoned_sessions(self):
+        """Answers from an unfinished attempt must not enter the notebook.
+
+        An abandoned attempt (closed tab, crash) can never be finished, so
+        counting its wrong answers inflated `total`/`wrong` permanently and
+        contradicted the view's own docstring.
+        """
+        self._answered(
+            [(self.q1, False)],
+            status=PracticeSession.Status.IN_PROGRESS,
+            finished_at=None,
+        )
+        res = self.client.get("/api/stats/mistakes/")
+        self.assertEqual(res.data["total"], 0)
+        self.assertEqual(res.data["items"], [])
+
+    def test_mistakes_mixes_finished_and_abandoned_correctly(self):
+        self._answered([(self.q1, False)])
+        self._answered(
+            [(self.q2, False)],
+            status=PracticeSession.Status.IN_PROGRESS,
+            finished_at=None,
+        )
+        res = self.client.get("/api/stats/mistakes/")
+        self.assertEqual(res.data["total"], 1)
+        self.assertEqual(res.data["items"][0]["question_id"], self.q1.id)
 
     def test_mistakes_excludes_question_unpublished_later(self):
         self._answered([(self.q1, False)])

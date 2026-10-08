@@ -11,6 +11,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { api, ApiError, extractFieldError, type CurrentUser } from "@/lib/api";
 import { fetchOnboardingStatus } from "@/lib/onboarding";
 import { Link } from "@/i18n/navigation";
+import { safeNext } from "@/lib/navigation";
 
 export default function LoginPage() {
   const t = useTranslations("auth");
@@ -19,10 +20,11 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Only same-site paths: an attacker-supplied next=https://evil.com must not
-  // turn the login button into an open redirect.
+  // turn the login button into an open redirect. The previous guard rejected
+  // "//" but not "/\evil.com" — browsers normalise "\" to "/", so that value
+  // resolves protocol-relative to an attacker's host.
   const rawNext = searchParams.get("next") || "";
-  const next =
-    rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
+  const next = safeNext(rawNext);
 
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState<string | null>(null);

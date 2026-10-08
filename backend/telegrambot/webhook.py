@@ -23,8 +23,16 @@ logger = logging.getLogger(__name__)
 def _secret_ok(request) -> bool:
     secret = getattr(settings, "TELEGRAM_WEBHOOK_SECRET", "") or ""
     if not secret:
-        # Fail closed: without a secret the webhook is unusable in production.
-        return bool(getattr(settings, "DEBUG", False))
+        # Fail closed, unconditionally. A previous version fell back to DEBUG,
+        # which meant any host reachable from the internet with DEBUG on — or a
+        # production box where DEBUG leaked on — accepted arbitrary webhook
+        # updates from anyone, letting an attacker drive the bot's replies and
+        # notification channel.
+        logger.error(
+            "TELEGRAM_WEBHOOK_SECRET is empty — rejecting telegram webhook. "
+            "Set it to the secret token configured via setWebhook."
+        )
+        return False
     header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "") or ""
     return hmac.compare_digest(header.encode(), secret.encode())
 
